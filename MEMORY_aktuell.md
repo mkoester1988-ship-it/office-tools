@@ -9,10 +9,10 @@ Stand: 2026-11-18 · Kürzel: `PDF` · Phase: `aufbau` · Sensibilität: 🟢
 - **Kosten & Break-Even:** 0 € laufende Kosten (100 % lokal, keine Cloud/API).
 - **Risiken & Leitplanken:** `C:\Program Files\Adobe\Acrobat DC\` wird nur read-only analysiert; keine proprietären Assets oder Icons übernommen.
 
-## Aktueller Stand (v1.4.0, 2026-11-18)
+## Aktueller Stand (v1.4.1, 2026-11-18)
 
-- **App gebaut & verifiziert:** `npm run build` + Gradle `assembleDebug` fehlerfrei, GitHub-Repo `mkoester1988-ship-it/office-tools` + Web-Installer `OfficeTools-Installer.exe` (~31,5 KB) + GitHub Releases (`v1.2.7` bis `v1.4.0`) live.
-- **Neu in `v1.4.0`:** Echte installierbare Android-App (`PDF-Reader-Studio.apk`, Capacitor) direkt in `Setup 1.4.0.exe` (`extraResources`) gebündelt. Registriert `VIEW` für `.pdf` und Bilder in `AndroidManifest.xml`, bietet **„Auf PC speichern“** sowie **„Update“** direkt vom PC über WLAN (`/api/apk-version`, `/api/download-apk`). Bereits per `adb` auf Mircos Handy installiert.
+- **App gebaut & verifiziert:** `npm run build` + Gradle `assembleDebug` fehlerfrei, GitHub-Repo `mkoester1988-ship-it/office-tools` + Web-Installer `OfficeTools-Installer.exe` (~31,5 KB) + GitHub Releases (`v1.2.7` bis `v1.4.1`) live.
+- **Neu in `v1.4.1`:** Alle 6 auf Mircos Handy gefundenen Mobil-Bugs behoben (Desktop-Karten ausgeblendet, einklappbare Seitenleiste + 65 % Mobil-Zoom, Pointer-Events für Finger-Zeichnen, `AndroidNative.consumePendingFile()`, echtes Speichern in Handy-`Downloads` via `MediaStore.Downloads`, In-App-PC-Kopplungs-Modal & `installApkFromUrl`). Bereits per `adb` auf Mircos Handy installiert.
 - **Windows-Installer fertig:** `D:\KI-Arbeitsbereich\PDF-Reader\release\PDF-Reader Studio Setup 1.2.6.exe` (NSIS-Setup mit Dateizuordnungen für `.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.gif`), **1-Klick-Update-Button** (`cmd /c start` + `--just-updated` Erfolgstoast) sowie **Standard-App-Button** (`RegisteredApplications` + `ms-settings:defaultapps`).
 - **System-Tray & Windows-Snipping-Anbindung:** Minimiert beim Schließen (`X`) ins System-Tray und startet per Autostart (`--hidden`). Das native Windows-Snipping-Tool (`Druck` / `Win+Shift+S`) bleibt aktiv; ein **Clipboard-Watcher** (450 ms, im Tray umschaltbar) erkennt jeden neuen Screenshot sofort, holt **PDF-Reader Studio** in den Vordergrund und öffnet ihn im KI-Markierungsstudio. Der eigene In-App-Screenshot-Overlay nutzt IPC (`snip:init`) statt langer Data-URLs.
 - **Enthaltene Funktionen:**

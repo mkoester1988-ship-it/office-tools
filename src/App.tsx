@@ -21,6 +21,7 @@ import { ImageStudio } from './components/ImageStudio';
 import { VideoStudio } from './components/VideoStudio';
 import { RecordModal } from './components/RecordModal';
 import { SyncModal } from './components/SyncModal';
+import { MobilePairModal } from './components/MobilePairModal';
 import {
   APP_VERSION,
   getPcSyncPairing,
@@ -63,10 +64,6 @@ export const App: React.FC = () => {
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [showMobilePairModal, setShowMobilePairModal] = useState(false);
-  const [mobilePairInput, setMobilePairInput] = useState(() => {
-    const cur = getPcSyncPairing();
-    return cur ? `${cur.baseUrl}/?token=${cur.token}` : 'http://192.168.2.21:3847/?token=';
-  });
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -97,7 +94,16 @@ export const App: React.FC = () => {
       try {
         const res = await fetch(`${pairing.baseUrl}/api/apk-version?token=${encodeURIComponent(pairing.token)}`);
         const data = (await res.json()) as { available?: boolean; version?: string };
-        if (data.available && data.version && data.version !== APP_VERSION) {
+        const isNewer = (remote: string, local: string) => {
+          const ra = remote.replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
+          const la = local.replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
+          for (let i = 0; i < 3; i++) {
+            if ((ra[i] ?? 0) > (la[i] ?? 0)) return true;
+            if ((ra[i] ?? 0) < (la[i] ?? 0)) return false;
+          }
+          return false;
+        };
+        if (data.available && data.version && isNewer(data.version, APP_VERSION)) {
           if (window.confirm(`Neue Handy-App v${data.version} auf deinem PC gefunden. Jetzt herunterladen & installieren?`)) {
             const apkUrl = `${pairing.baseUrl}/api/download-apk?token=${encodeURIComponent(pairing.token)}`;
             if (window.AndroidNative) {
@@ -739,62 +745,11 @@ export const App: React.FC = () => {
       )}
 
       {showMobilePairModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9000,
-            padding: 18,
-          }}
-        >
-          <div
-            style={{
-              background: 'var(--bg-panel)',
-              border: '1px solid var(--border-strong)',
-              borderRadius: 14,
-              padding: 18,
-              width: '100%',
-              maxWidth: 420,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-            }}
-          >
-            <strong style={{ fontSize: 15 }}>Mit PC koppeln</strong>
-            <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-              Kopiere den Sync-Link aus „Handy-Sync“ auf deinem PC hier hinein:
-            </span>
-            <input
-              className="input-compact"
-              style={{ width: '100%', padding: '8px 10px' }}
-              value={mobilePairInput}
-              onChange={(e) => setMobilePairInput(e.target.value)}
-              placeholder="http://192.168.2.21:3847/?token=..."
-            />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button className="btn" onClick={() => setShowMobilePairModal(false)}>
-                Abbrechen
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  if (setPcSyncPairing(mobilePairInput)) {
-                    setShowMobilePairModal(false);
-                    showToast('Mit PC gekoppelt!');
-                  } else {
-                    showToast('Ungültiger Sync-Link (token=... fehlt).');
-                  }
-                }}
-              >
-                Verbinden
-              </button>
-            </div>
-          </div>
-        </div>
+        <MobilePairModal
+          onClose={() => setShowMobilePairModal(false)}
+          onPaired={() => setShowMobilePairModal(false)}
+          onToast={showToast}
+        />
       )}
 
       {toast && <div className="toast">{toast}</div>}

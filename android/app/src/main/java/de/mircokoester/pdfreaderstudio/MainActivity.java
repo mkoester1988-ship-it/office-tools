@@ -15,6 +15,7 @@ import androidx.core.content.FileProvider;
 import com.getcapacitor.BridgeActivity;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -56,7 +57,9 @@ public class MainActivity extends BridgeActivity {
             if (mimeType == null) mimeType = "application/pdf";
 
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            try (InputStream is = getContentResolver().openInputStream(uri)) {
+            try (InputStream is = "file".equals(uri.getScheme()) && uri.getPath() != null
+                    ? new FileInputStream(new File(uri.getPath()))
+                    : getContentResolver().openInputStream(uri)) {
                 if (is == null) return;
                 byte[] buf = new byte[8192];
                 int n;
