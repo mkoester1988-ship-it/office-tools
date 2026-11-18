@@ -1,0 +1,106 @@
+{
+  "name": "pdf-reader-studio",
+  "version": "1.2.7",
+  "description": "Eigenständiger Windows PDF-Reader mit Part-Splitter und KI-Bildviewer",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build && tsc -p tsconfig.node.json",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dist": "npm run build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "lucide-react": "^0.511.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^35.1.5",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.0",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "de.mircokoester.pdfreaderstudio",
+    "productName": "PDF-Reader Studio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "build/icon.ico",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PDF-Reader Studio",
+      "perMachine": false
+    },
+    "fileAssociations": [
+      {
+        "ext": "pdf",
+        "name": "PDF-Dokument",
+        "description": "Portable Document Format (.pdf)",
+        "role": "Editor"
+      },
+      {
+        "ext": "png",
+        "name": "PNG-Bild",
+        "description": "Portable Network Graphics (.png)",
+        "role": "Editor"
+      },
+      {
+        "ext": "jpg",
+        "name": "JPEG-Bild",
+        "description": "JPEG Image (.jpg)",
+        "role": "Editor"
+      },
+      {
+        "ext": "jpeg",
+        "name": "JPEG-Bild",
+        "description": "JPEG Image (.jpeg)",
+        "role": "Editor"
+      },
+      {
+        "ext": "webp",
+        "name": "WebP-Bild",
+        "description": "WebP Image (.webp)",
+        "role": "Editor"
+      },
+      {
+        "ext": "bmp",
+        "name": "Bitmap-Bild",
+        "description": "Bitmap Image (.bmp)",
+        "role": "Editor"
+      },
+      {
+        "ext": "gif",
+        "name": "GIF-Bild",
+        "description": "GIF Image (.gif)",
+        "role": "Editor"
+      }
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+# MEMORY aktuell, PDF-Reader (`PDF`)
+
+Stand: 2026-11-18 · Kürzel: `PDF` · Phase: `aufbau` · Sensibilität: 🟢
+
+## Entscheidungen & Kalkulation (aus Zwei-Stufen-Interview)
+
+- **Zielprodukt:** Eigenständige, installierbare Windows-Desktop-App mit Dateizuordnungen (`.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.gif`) als Ersatz für Adobe Acrobat Reader, Windows-Fotoanzeige und separates Screenshot-Markierungstool.
+- **Tech-Stack:** Electron + React + TypeScript + Vite + `pdfjs-dist` + `pdf-lib` + `electron-builder` (NSIS-Windows-Installer).
+- **Kosten & Break-Even:** 0 € laufende Kosten (100 % lokal, keine Cloud/API).
+- **Risiken & Leitplanken:** `C:\Program Files\Adobe\Acrobat DC\` wird nur read-only analysiert; keine proprietären Assets oder Icons übernommen.
+
+## Aktueller Stand (v1.2.6, 2026-11-18)
+
+- **App gebaut & verifiziert:** `npm run build` (TypeScript + Vite + Electron Main/Preload) fehlerfrei, `pdf-lib`-Split-Test (27 Seiten bei Seite 24 → 24 + 3 Seiten) bestanden.
+- **Windows-Installer fertig:** `D:\KI-Arbeitsbereich\PDF-Reader\release\PDF-Reader Studio Setup 1.2.6.exe` (NSIS-Setup mit Dateizuordnungen für `.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.gif`), **1-Klick-Update-Button** (`cmd /c start` + `--just-updated` Erfolgstoast) sowie **Standard-App-Button** (`RegisteredApplications` + `ms-settings:defaultapps`).
+- **System-Tray & Windows-Snipping-Anbindung:** Minimiert beim Schließen (`X`) ins System-Tray und startet per Autostart (`--hidden`). Das native Windows-Snipping-Tool (`Druck` / `Win+Shift+S`) bleibt aktiv; ein **Clipboard-Watcher** (450 ms, im Tray umschaltbar) erkennt jeden neuen Screenshot sofort, holt **PDF-Reader Studio** in den Vordergrund und öffnet ihn im KI-Markierungsstudio. Der eigene In-App-Screenshot-Overlay nutzt IPC (`snip:init`) statt langer Data-URLs.
+- **Enthaltene Funktionen:**
+  - **Vollumfänglicher PDF-Reader:** `TextLayer` (Text direkt auf PDF-Seiten markieren & mit `Strg+C` kopieren), Seitenleiste mit Thumbnails, Inhaltsverzeichnis/Lesezeichen (`Inhalt`), **AcroForm-Formularfelder auslesen, mit 1 Klick kopieren & ausfüllen** (`Formular`), **Textmarker** (Gelb/Grün/Pink/Blau direkt auf Seiten & beim Speichern eingebettet), Einzelseite/Scroll-Ansicht, Zoom, Drehen, Volltextsuche, Drucken, Mehr-Tab-Ansicht, Drag & Drop.
+  - **Part-Splitter & An-/Abreihen:** Schnittmarken nach jeder beliebigen Seite setzen/aufheben; farblich markierte Parts; jeden Part anklicken, umbenennen und einzeln speichern oder alle Parts gesammelt in einen Ordner exportieren, während das Dokument geöffnet bleibt; weitere PDFs hinten anreihen oder einzelne Seiten/Parts abreihen.
+  - **KI-Bildstudio & Bildviewer:** Ordner-Blättern (Pfeiltasten), Detail-Zoom bis 1600 % (Pixelraster), KI-Markierungen (Pfeil, Rechteck, Kreis, Freihand, nummerierte Marker 1/2/3, Text, Kommentar-Box/Callout, Unschärfe/Zensur, Zuschnitt), 1-Klick/Strg+C direkte PNG-Kopie in die Windows-Zwischenablage sowie Übernahme einzelner PDF-Seiten ins Studio und Strg+V-Einfügen von Screenshots.
+  - **KI-Screenshot-Generator & Offline-OCR:** Globaler Shortcut `Strg+Alt+S` + System-Tray + Toolbar-Button öffnen ein Snipping-Overlay (Bereich ziehen, `Enter` = ganzer Bildschirm, `Esc` = Abbrechen). Der Screenshot landet sofort in der Zwischenablage und öffnet direkt im Studio. Per Button „Text auslesen / KI-Notiz“ liest die native Windows-OCR (`Windows.Media.Ocr`, `de-DE` via `File.OpenRead` + `-EncodedCommand`) Text offline aus und bietet eine Schnell-Kommentar-Leiste mit 1-Klick-Kopie für KI-Prompts.
+  - **Bildschirm-Videoaufnahme (Ersatz für Adobe Express):** Button „Video“ (`Strg+Alt+R` zum Starten/Stoppen) mit Auswahl von Bildschirm oder Fenster (inkl. Live-Thumbnails), optionalem Mikrofon, Minimieren während der Aufnahme, integriertem Video-Vorschau-Player, 1-Klick-Übernahme jedes beliebigen Videobilds ins KI-Markierungsstudio und Speichern als `.mp4` / `.webm`.
