@@ -150,7 +150,7 @@ export const SyncModal: React.FC<SyncModalProps> = ({ onClose, onToast }) => {
                 </label>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <button
                   className="btn"
                   onClick={async () => {
@@ -162,6 +162,20 @@ export const SyncModal: React.FC<SyncModalProps> = ({ onClose, onToast }) => {
                   }}
                 >
                   <RefreshCw size={14} /> QR-Code erneuern
+                </button>
+                <button
+                  className="btn"
+                  onClick={async () => {
+                    const res = await window.electronAPI.allowSyncFirewall();
+                    if (res.ok) {
+                      onToast('WLAN-Firewall für Port 3847 freigegeben!');
+                    } else {
+                      onToast(`Firewall-Freigabe abgebrochen: ${res.error ?? ''}`);
+                    }
+                  }}
+                  title="Öffnet Windows-Freigabe, falls das Handy im öffentlichen WLAN blockiert wird"
+                >
+                  WLAN-Firewall freigeben
                 </button>
                 <button className="btn btn-primary" onClick={onClose}>
                   Fertig

@@ -684,6 +684,25 @@ ipcMain.handle('sync:regenerateToken', async () => {
   return syncServer.regenerateToken();
 });
 
+ipcMain.handle('sync:allowFirewall', async () => {
+  const netshCmd =
+    'netsh advfirewall firewall delete rule name="PDF-Reader Studio Handy-Sync" >nul 2>&1 & netsh advfirewall firewall add rule name="PDF-Reader Studio Handy-Sync" dir=in action=allow protocol=TCP localport=3847 profile=any';
+  const psCmd = `Start-Process cmd.exe -ArgumentList '/c', '${netshCmd.replace(/'/g, "''")}' -Verb RunAs -Wait`;
+  try {
+    const encoded = Buffer.from(psCmd, 'utf16le').toString('base64');
+    await execFileAsync('powershell.exe', [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-EncodedCommand',
+      encoded,
+    ]);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+});
+
 ipcMain.handle('app:print', async () => {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
   mainWindow.webContents.print({ silent: false, printBackground: true });

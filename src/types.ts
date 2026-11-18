@@ -25,6 +25,7 @@ export interface ElectronAPI {
   chooseSyncDir: () => Promise<SyncStatus | null>;
   setSyncAutoOpen: (autoOpen: boolean) => Promise<SyncStatus | null>;
   regenerateSyncToken: () => Promise<SyncStatus | null>;
+  allowSyncFirewall: () => Promise<{ ok: boolean; error?: string }>;
   onSyncFileReceived: (callback: (fileName: string) => void) => () => void;
   registerDefaultApp: () => Promise<{ ok: boolean; error?: string }>;
   checkUpdate: () => Promise<{

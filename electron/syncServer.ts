@@ -151,6 +151,21 @@ export class MobileSyncServer {
       return;
     }
 
+    if (parsedUrl.pathname === '/manifest.webmanifest') {
+      res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8' });
+      res.end(
+        JSON.stringify({
+          name: 'PDF-Reader Studio Sync',
+          short_name: 'PDF Sync',
+          start_url: `/?token=${encodeURIComponent(token || this.config.token)}`,
+          display: 'standalone',
+          background_color: '#0f172a',
+          theme_color: '#0f172a',
+        })
+      );
+      return;
+    }
+
     if (token !== this.config.token) {
       res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'Ungültiger Pairing-Code. Bitte QR-Code erneut scannen.' }));
@@ -226,6 +241,9 @@ export class MobileSyncServer {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0f172a" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<link rel="manifest" href="/manifest.webmanifest" />
 <title>PDF-Reader Studio · Handy-Sync</title>
 <style>
   body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; padding: 16px; }

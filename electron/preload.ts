@@ -36,6 +36,8 @@ const api = {
   setSyncAutoOpen: (autoOpen: boolean): Promise<unknown> =>
     ipcRenderer.invoke('sync:setAutoOpen', autoOpen),
   regenerateSyncToken: (): Promise<unknown> => ipcRenderer.invoke('sync:regenerateToken'),
+  allowSyncFirewall: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('sync:allowFirewall'),
   onSyncFileReceived: (callback: (fileName: string) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, fileName: string) => callback(fileName);
     ipcRenderer.on('app:sync-file-received', listener);
