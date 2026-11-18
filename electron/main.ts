@@ -19,6 +19,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
+import { MobileSyncServer } from './syncServer';
 
 const execFileAsync = promisify(execFile);
 
@@ -41,6 +42,7 @@ let isQuitting = false;
 let autoOpenClipboardScreenshots = true;
 let lastClipboardHash = '';
 let clipboardTimer: ReturnType<typeof setInterval> | null = null;
+let syncServer: MobileSyncServer | null = null;
 const pendingFiles: string[] = [];
 
 function extractFilePathsFromArgv(argv: string[]): string[] {
@@ -382,6 +384,19 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   startClipboardWatcher();
+  syncServer = new MobileSyncServer(
+    app.getPath('userData'),
+    app.getPath('downloads'),
+    (filePath, autoOpen) => {
+      if (autoOpen) {
+        bringMainWindowToFront();
+        sendOpenFiles([filePath]);
+      } else if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('app:sync-file-received', path.basename(filePath));
+      }
+    }
+  );
+  syncServer.init().catch(() => {});
   globalShortcut.register('CommandOrControl+Alt+S', () => {
     startScreenshotCapture();
   });
@@ -406,6 +421,7 @@ app.on('will-quit', () => {
     clearInterval(clipboardTimer);
     clipboardTimer = null;
   }
+  syncServer?.stop();
 });
 
 app.on('window-all-closed', () => {
@@ -641,6 +657,31 @@ ipcMain.handle('clipboard:writeText', async (_event, text: string) => {
 ipcMain.handle('shell:showItemInFolder', async (_event, targetPath: string) => {
   shell.showItemInFolder(targetPath);
   return true;
+});
+
+ipcMain.handle('sync:getStatus', async () => {
+  if (!syncServer) return null;
+  return syncServer.getStatus();
+});
+
+ipcMain.handle('sync:chooseDir', async () => {
+  if (!syncServer) return null;
+  const res = await dialog.showOpenDialog({
+    title: 'Zielordner für Handy-Sync wählen',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (res.canceled || res.filePaths.length === 0) return syncServer.getStatus();
+  return syncServer.updateConfig({ targetDir: res.filePaths[0] });
+});
+
+ipcMain.handle('sync:setAutoOpen', async (_event, autoOpen: boolean) => {
+  if (!syncServer) return null;
+  return syncServer.updateConfig({ autoOpenOnReceive: autoOpen });
+});
+
+ipcMain.handle('sync:regenerateToken', async () => {
+  if (!syncServer) return null;
+  return syncServer.regenerateToken();
 });
 
 ipcMain.handle('app:print', async () => {

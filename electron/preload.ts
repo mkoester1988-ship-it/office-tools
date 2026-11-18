@@ -31,6 +31,16 @@ const api = {
   showItemInFolder: (targetPath: string): Promise<boolean> =>
     ipcRenderer.invoke('shell:showItemInFolder', targetPath),
   printWindow: (): Promise<boolean> => ipcRenderer.invoke('app:print'),
+  getSyncStatus: (): Promise<unknown> => ipcRenderer.invoke('sync:getStatus'),
+  chooseSyncDir: (): Promise<unknown> => ipcRenderer.invoke('sync:chooseDir'),
+  setSyncAutoOpen: (autoOpen: boolean): Promise<unknown> =>
+    ipcRenderer.invoke('sync:setAutoOpen', autoOpen),
+  regenerateSyncToken: (): Promise<unknown> => ipcRenderer.invoke('sync:regenerateToken'),
+  onSyncFileReceived: (callback: (fileName: string) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, fileName: string) => callback(fileName);
+    ipcRenderer.on('app:sync-file-received', listener);
+    return () => ipcRenderer.removeListener('app:sync-file-received', listener);
+  },
   registerDefaultApp: (): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('app:registerDefaultApp'),
   checkUpdate: (): Promise<{

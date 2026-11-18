@@ -21,6 +21,11 @@ export interface ElectronAPI {
   writeClipboardText: (text: string) => Promise<boolean>;
   showItemInFolder: (targetPath: string) => Promise<boolean>;
   printWindow: () => Promise<boolean>;
+  getSyncStatus: () => Promise<SyncStatus | null>;
+  chooseSyncDir: () => Promise<SyncStatus | null>;
+  setSyncAutoOpen: (autoOpen: boolean) => Promise<SyncStatus | null>;
+  regenerateSyncToken: () => Promise<SyncStatus | null>;
+  onSyncFileReceived: (callback: (fileName: string) => void) => () => void;
   registerDefaultApp: () => Promise<{ ok: boolean; error?: string }>;
   checkUpdate: () => Promise<{
     hasUpdate: boolean;
@@ -109,6 +114,18 @@ export interface ImageTab {
   filePath?: string;
   dataUrl: string;
   siblingPaths: string[];
+}
+
+export interface SyncStatus {
+  running: boolean;
+  port: number;
+  url: string;
+  qrDataUrl: string;
+  config: {
+    token: string;
+    targetDir: string;
+    autoOpenOnReceive: boolean;
+  };
 }
 
 export interface VideoTab {

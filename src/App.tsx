@@ -8,6 +8,7 @@ import {
   Moon,
   RefreshCw,
   ShieldCheck,
+  Smartphone,
   Square,
   Sun,
   Video,
@@ -19,6 +20,7 @@ import { PdfWorkspace } from './components/PdfWorkspace';
 import { ImageStudio } from './components/ImageStudio';
 import { VideoStudio } from './components/VideoStudio';
 import { RecordModal } from './components/RecordModal';
+import { SyncModal } from './components/SyncModal';
 
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif']);
 
@@ -52,6 +54,7 @@ export const App: React.FC = () => {
     reason: string;
   } | null>(null);
   const [showRecordModal, setShowRecordModal] = useState(false);
+  const [showSyncModal, setShowSyncModal] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -155,6 +158,12 @@ export const App: React.FC = () => {
   useEffect(() => {
     return window.electronAPI.onJustUpdated((version) => {
       showToast(`Update auf v${version} erfolgreich installiert!`);
+    });
+  }, [showToast]);
+
+  useEffect(() => {
+    return window.electronAPI.onSyncFileReceived((fileName) => {
+      showToast(`Vom Handy empfangen & gespeichert: ${fileName}`);
     });
   }, [showToast]);
 
@@ -457,6 +466,13 @@ export const App: React.FC = () => {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, paddingBottom: 6 }}>
           <button
             className="btn"
+            onClick={() => setShowSyncModal(true)}
+            title="Handy per QR-Code verbinden & Dateien synchronisieren"
+          >
+            <Smartphone size={14} color="#3b82f6" /> Handy-Sync
+          </button>
+          <button
+            className="btn"
             onClick={async () => {
               const res = await window.electronAPI.registerDefaultApp();
               if (res.ok) {
@@ -591,6 +607,13 @@ export const App: React.FC = () => {
         <RecordModal
           onClose={() => setShowRecordModal(false)}
           onStart={startVideoRecording}
+        />
+      )}
+
+      {showSyncModal && (
+        <SyncModal
+          onClose={() => setShowSyncModal(false)}
+          onToast={showToast}
         />
       )}
 
