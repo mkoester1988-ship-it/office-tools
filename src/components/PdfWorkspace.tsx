@@ -169,7 +169,10 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   const [showSidebar, setShowSidebar] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth >= 768 : true
   );
-  const [viewMode, setViewMode] = useState<'single' | 'scroll'>('single');
+  const [viewMode, setViewMode] = useState<'single' | 'scroll'>('scroll');
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
+  const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const [sidebarTab, setSidebarTab] = useState<'pages' | 'parts' | 'outline' | 'form'>('pages');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMatches, setSearchMatches] = useState<number[]>([]);
@@ -219,6 +222,59 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   const goToPage = (index0: number) => {
     const clamped = Math.max(0, Math.min(tab.pages.length - 1, index0));
     onUpdateTab((prev) => ({ ...prev, activePageIndex: clamped }));
+    if (viewMode === 'scroll') {
+      const el = pageRefs.current.get(clamped);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const handleViewportScroll = () => {
+    if (viewMode !== 'scroll' || !viewportRef.current) return;
+    const vpTop = viewportRef.current.getBoundingClientRect().top;
+    let closestIdx = tab.activePageIndex;
+    let minDist = Infinity;
+    pageRefs.current.forEach((el, idx) => {
+      const dist = Math.abs(el.getBoundingClientRect().top - vpTop - 24);
+      if (dist < minDist) {
+        minDist = dist;
+        closestIdx = idx;
+      }
+    });
+    if (closestIdx !== tab.activePageIndex) {
+      onUpdateTab((prev) => ({ ...prev, activePageIndex: closestIdx }));
+    }
+  };
+
+  const toggleSelectPage = (pageId: string) => {
+    setSelectedPageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(pageId)) next.delete(pageId);
+      else next.add(pageId);
+      return next;
+    });
+  };
+
+  const handleSaveSelectedPages = async () => {
+    const picked = tab.pages.filter((p) => selectedPageIds.has(p.id));
+    if (picked.length === 0) {
+      onToast('Bitte zuerst mindestens eine Seite auswählen.');
+      return;
+    }
+    const bytes = await buildPdfFromPages(tab.sources, picked, highlights, formValues);
+    const baseName = tab.title.replace(/\.pdf$/i, '');
+    if (!isElectron()) {
+      saveBytesBrowserFallback(`${baseName}_Auswahl.pdf`, bytes, 'application/pdf');
+      onToast(`${picked.length} ausgewählte Seiten gespeichert.`);
+      return;
+    }
+    const res = await window.electronAPI.saveBinary({
+      defaultPath: `${baseName}_Auswahl.pdf`,
+      filters: [{ name: 'PDF-Dokument', extensions: ['pdf'] }],
+      data: bytes,
+    });
+    if (!res.canceled) {
+      onToast(`${picked.length} ausgewählte Seiten als PDF gespeichert.`);
+    }
   };
 
   useEffect(() => {
@@ -500,14 +556,29 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
     if (!src) return null;
     const pageHighlights = highlights.filter((h) => h.pageId === vp.id);
 
+    const isSelected = selectedPageIds.has(vp.id);
     return (
       <div
         key={vp.id}
+        ref={(el) => {
+          if (el) pageRefs.current.set(idx, el);
+          else pageRefs.current.delete(idx);
+        }}
         className="pdf-page-shell"
-        onClick={() => !highlightMode && goToPage(idx)}
+        onClick={() => {
+          if (selectMode) {
+            toggleSelectPage(vp.id);
+          } else if (!highlightMode) {
+            goToPage(idx);
+          }
+        }}
         style={{
-          outline: isActiveHighlight ? '2px solid var(--accent)' : 'none',
-          cursor: highlightMode ? 'crosshair' : 'auto',
+          outline: isSelected
+            ? '3px solid #10b981'
+            : isActiveHighlight
+              ? '2px solid var(--accent)'
+              : 'none',
+          cursor: highlightMode || selectMode ? 'crosshair' : 'auto',
         }}
         onMouseDown={(e) => {
           if (!highlightMode) return;
@@ -749,6 +820,25 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
           >
             <FilePlus2 size={15} /> PDF anreihen
           </button>
+          <button
+            className={`btn ${selectMode ? 'active' : ''}`}
+            onClick={() => {
+              setSelectMode((m) => !m);
+              if (selectMode) setSelectedPageIds(new Set());
+            }}
+            title="Mehrere Seiten frei auswählen und als eigene PDF speichern"
+          >
+            Auswahl{selectedPageIds.size > 0 ? ` (${selectedPageIds.size})` : ''}
+          </button>
+          {selectMode && selectedPageIds.size > 0 && (
+            <button
+              className="btn btn-success"
+              onClick={handleSaveSelectedPages}
+              title="Ausgewählte Seiten als separate PDF speichern"
+            >
+              <Save size={14} /> Auswahl speichern
+            </button>
+          )}
         </div>
 
         <div className="toolbar-group">
@@ -790,8 +880,12 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
         </div>
 
         <div className="toolbar-group">
-          <button className="btn" onClick={handleSaveCombinedPdf} title="Gesamte PDF speichern">
-            <Save size={15} /> Gesamt-PDF
+          <button
+            className="btn"
+            onClick={handleSaveCombinedPdf}
+            title="Ohne Trennung als eine Gesamt-PDF speichern (Original bleibt erhalten)"
+          >
+            <Save size={15} /> Ohne Trennung speichern
           </button>
           {!isElectron() && (
             <button
@@ -1088,7 +1182,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
         )}
 
         {/* Main Viewport */}
-        <main className="main-viewport" ref={viewportRef}>
+        <main className="main-viewport" ref={viewportRef} onScroll={handleViewportScroll}>
           {viewMode === 'single' && activePage && renderPageShell(activePage, tab.activePageIndex, false)}
 
           {viewMode === 'scroll' &&
