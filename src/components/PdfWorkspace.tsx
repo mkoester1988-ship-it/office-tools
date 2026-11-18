@@ -37,6 +37,12 @@ import {
   readPdfFormFields,
   readPdfOutline,
 } from '../utils/pdfOperations';
+import {
+  isElectron,
+  pickLocalFilesWeb,
+  saveBytesBrowserFallback,
+  uploadToPc,
+} from '../utils/platformBridge';
 
 interface PdfWorkspaceProps {
   tab: PdfTab;
@@ -319,11 +325,22 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   };
 
   const handleAppendPdf = async () => {
-    const paths = await window.electronAPI.openFiles('pdf');
-    if (!paths.length) return;
+    const filesToAdd: { name: string; data: Uint8Array }[] = [];
+    if (isElectron()) {
+      const paths = await window.electronAPI.openFiles('pdf');
+      for (const filePath of paths) {
+        const f = await window.electronAPI.readBinary(filePath);
+        filesToAdd.push({ name: f.name, data: f.data });
+      }
+    } else {
+      const picked = await pickLocalFilesWeb('.pdf');
+      for (const f of picked) {
+        filesToAdd.push({ name: f.name, data: f.data });
+      }
+    }
+    if (!filesToAdd.length) return;
 
-    for (const filePath of paths) {
-      const file = await window.electronAPI.readBinary(filePath);
+    for (const file of filesToAdd) {
       const count = await loadPdfPageCount(file.data);
       const sourceId = `src_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       const newPartId = `part_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -357,6 +374,11 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
     const partPages = tab.pages.filter((p) => p.partId === part.id);
     if (!partPages.length) return;
     const bytes = await buildPdfFromPages(tab.sources, partPages, highlights, formValues);
+    if (!isElectron()) {
+      saveBytesBrowserFallback(`${part.name}.pdf`, bytes, 'application/pdf');
+      onToast(`Part „${part.name}.pdf“ gespeichert.`);
+      return;
+    }
     const res = await window.electronAPI.saveBinary({
       defaultPath: `${part.name}.pdf`,
       filters: [{ name: 'PDF-Dokument', extensions: ['pdf'] }],
@@ -382,6 +404,11 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
       payload.push({ fileName: `${part.name}.pdf`, data: bytes });
     }
     if (!payload.length) return;
+    if (!isElectron()) {
+      payload.forEach((p) => saveBytesBrowserFallback(p.fileName, p.data, 'application/pdf'));
+      onToast(`${payload.length} PDF-Parts gespeichert.`);
+      return;
+    }
     const res = await window.electronAPI.savePartsBatch(payload);
     if (!res.canceled) {
       onToast(`${res.savedPaths.length} PDF-Parts erfolgreich im Ordner gespeichert.`);
@@ -391,6 +418,11 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   const handleSaveCombinedPdf = async () => {
     const bytes = await buildPdfFromPages(tab.sources, tab.pages, highlights, formValues);
     const baseName = tab.title.replace(/\.pdf$/i, '');
+    if (!isElectron()) {
+      saveBytesBrowserFallback(`${baseName}_bearbeitet.pdf`, bytes, 'application/pdf');
+      onToast('PDF gespeichert.');
+      return;
+    }
     const res = await window.electronAPI.saveBinary({
       defaultPath: `${baseName}_bearbeitet.pdf`,
       filters: [{ name: 'PDF-Dokument', extensions: ['pdf'] }],
@@ -398,6 +430,17 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
     });
     if (!res.canceled) {
       onToast('Gesamte PDF gespeichert.');
+    }
+  };
+
+  const handleUploadCombinedToPc = async () => {
+    const bytes = await buildPdfFromPages(tab.sources, tab.pages, highlights, formValues);
+    const baseName = tab.title.replace(/\.pdf$/i, '');
+    const res = await uploadToPc(`${baseName}_handy.pdf`, bytes);
+    if (res.ok) {
+      onToast(`Auf PC gespeichert: ${res.savedName}`);
+    } else {
+      onToast(res.error ?? 'Upload fehlgeschlagen.');
     }
   };
 
@@ -738,13 +781,24 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
           <button className="btn" onClick={handleSaveCombinedPdf} title="Gesamte PDF speichern">
             <Save size={15} /> Gesamt-PDF
           </button>
-          <button
-            className="btn"
-            onClick={() => window.electronAPI.printWindow()}
-            title="Drucken"
-          >
-            <Printer size={15} />
-          </button>
+          {!isElectron() && (
+            <button
+              className="btn btn-success"
+              onClick={handleUploadCombinedToPc}
+              title="PDF direkt auf deinen gekoppelten PC speichern"
+            >
+              Auf PC speichern
+            </button>
+          )}
+          {isElectron() && (
+            <button
+              className="btn"
+              onClick={() => window.electronAPI.printWindow()}
+              title="Drucken"
+            >
+              <Printer size={15} />
+            </button>
+          )}
         </div>
       </div>
 

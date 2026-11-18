@@ -141,6 +141,23 @@ export class MobileSyncServer {
     this.server = null;
   }
 
+  private findApkPath(): string | null {
+    const candidates = [
+      path.join(process.resourcesPath || '', 'PDF-Reader-Studio.apk'),
+      path.resolve(__dirname, '../release/PDF-Reader-Studio.apk'),
+      'D:\\KI-Arbeitsbereich\\PDF-Reader\\release\\PDF-Reader-Studio.apk',
+    ];
+    for (const c of candidates) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        if (require('node:fs').existsSync(c)) return c;
+      } catch {
+        // ignore
+      }
+    }
+    return null;
+  }
+
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const parsedUrl = new URL(req.url ?? '/', `http://localhost:${this.port}`);
     const token = parsedUrl.searchParams.get('token') ?? '';
@@ -196,6 +213,42 @@ export class MobileSyncServer {
       res.writeHead(200, {
         'Content-Type': 'application/octet-stream',
         'Content-Disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+      });
+      res.end(data);
+      return;
+    }
+
+    if (parsedUrl.pathname === '/api/apk-version' && req.method === 'GET') {
+      const apkPath = this.findApkPath();
+      const exists = apkPath ? await fs.access(apkPath).then(() => true).catch(() => false) : false;
+      const pkgPath = path.resolve(__dirname, '../package.json');
+      let version = '1.4.0';
+      try {
+        const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf8'));
+        if (typeof pkg.version === 'string') version = pkg.version;
+      } catch {
+        // ignore
+      }
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(JSON.stringify({ available: exists, version }));
+      return;
+    }
+
+    if (parsedUrl.pathname === '/api/download-apk' && req.method === 'GET') {
+      const apkPath = this.findApkPath();
+      if (!apkPath) {
+        res.writeHead(404);
+        res.end('APK nicht gefunden');
+        return;
+      }
+      const data = await fs.readFile(apkPath);
+      res.writeHead(200, {
+        'Content-Type': 'application/vnd.android.package-archive',
+        'Content-Disposition': 'attachment; filename="PDF-Reader-Studio.apk"',
+        'Content-Length': String(data.length),
       });
       res.end(data);
       return;
@@ -268,6 +321,7 @@ export class MobileSyncServer {
     <input id="camInput" type="file" accept="image/*" capture="environment" style="display:none" />
     <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">PDF / Bild an PC senden</button>
     <button class="btn btn-green" onclick="document.getElementById('camInput').click()">Dokument abfotografieren & senden</button>
+    <a class="btn" style="background:#7c3aed;color:#fff;text-decoration:none;box-sizing:border-box;" id="apkBtn" href="#">Android-App (.apk) installieren / updaten</a>
     <div id="status"></div>
   </div>
 
@@ -283,6 +337,8 @@ export class MobileSyncServer {
   const params = new URLSearchParams(location.search);
   let token = params.get('token') || localStorage.getItem('pdf_sync_token') || '';
   if (token) localStorage.setItem('pdf_sync_token', token);
+  const apkBtn = document.getElementById('apkBtn');
+  if (apkBtn) apkBtn.href = '/api/download-apk?token=' + encodeURIComponent(token);
 
   async function uploadFiles(files) {
     const st = document.getElementById('status');

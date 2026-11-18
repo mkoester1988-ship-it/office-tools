@@ -21,6 +21,13 @@ import { ImageStudio } from './components/ImageStudio';
 import { VideoStudio } from './components/VideoStudio';
 import { RecordModal } from './components/RecordModal';
 import { SyncModal } from './components/SyncModal';
+import {
+  APP_VERSION,
+  getPcSyncPairing,
+  isElectron,
+  pickLocalFilesWeb,
+  setPcSyncPairing,
+} from './utils/platformBridge';
 
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif']);
 
@@ -75,6 +82,34 @@ export const App: React.FC = () => {
   }, [theme]);
 
   const handleUpdateClick = async () => {
+    if (!isElectron()) {
+      const pairing = getPcSyncPairing();
+      if (!pairing) {
+        const input = window.prompt(
+          'Sync-Link vom PC einfügen (z. B. http://192.168.2.21:3847/?token=...):'
+        );
+        if (!input || !setPcSyncPairing(input)) {
+          showToast('Ungültiger Sync-Link.');
+          return;
+        }
+      }
+      const p = getPcSyncPairing()!;
+      try {
+        const res = await fetch(`${p.baseUrl}/api/apk-version?token=${encodeURIComponent(p.token)}`);
+        const data = (await res.json()) as { available?: boolean; version?: string };
+        if (data.available && data.version && data.version !== APP_VERSION) {
+          if (window.confirm(`Neue Handy-App v${data.version} auf deinem PC gefunden. Jetzt herunterladen & installieren?`)) {
+            window.location.href = `${p.baseUrl}/api/download-apk?token=${encodeURIComponent(p.token)}`;
+          }
+        } else {
+          showToast(`Handy-App ist aktuell (v${APP_VERSION}).`);
+        }
+      } catch {
+        showToast('PC im WLAN nicht erreichbar.');
+      }
+      return;
+    }
+
     const res = await window.electronAPI.checkUpdate();
     setUpdateInfo(res);
     if (res.hasUpdate && res.setupPath) {
@@ -90,11 +125,10 @@ export const App: React.FC = () => {
     }
   };
 
-  const openFilePaths = useCallback(
-    async (paths: string[]) => {
-      for (const filePath of paths) {
+  const openBinaryFiles = useCallback(
+    async (items: { name: string; ext: string; data: Uint8Array; path?: string }[]) => {
+      for (const payload of items) {
         try {
-          const payload = await window.electronAPI.readBinary(filePath);
           if (payload.ext === '.pdf') {
             const pageCount = await loadPdfPageCount(payload.data);
             const sourceId = `src_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -128,7 +162,10 @@ export const App: React.FC = () => {
             setActiveTabId(newTab.id);
           } else if (IMAGE_EXTS.has(payload.ext)) {
             const dataUrl = bytesToDataUrl(payload.data, payload.ext);
-            const siblings = await window.electronAPI.listSiblingImages(payload.path);
+            const siblings =
+              isElectron() && payload.path
+                ? await window.electronAPI.listSiblingImages(payload.path)
+                : [];
             const newTab: ImageTab = {
               id: `tab_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
               kind: 'image',
@@ -148,20 +185,49 @@ export const App: React.FC = () => {
     [showToast]
   );
 
-  // Listen for files opened via Windows Explorer double-click / CLI args
+  const openFilePaths = useCallback(
+    async (paths: string[]) => {
+      if (!isElectron()) return;
+      const loaded = [];
+      for (const filePath of paths) {
+        loaded.push(await window.electronAPI.readBinary(filePath));
+      }
+      await openBinaryFiles(loaded);
+    },
+    [openBinaryFiles]
+  );
+
+  // Listen for files opened via Windows Explorer double-click / CLI args (Desktop) or Android Intent
   useEffect(() => {
+    if (!isElectron()) {
+      const onAndroidFile = async (ev: Event) => {
+        const detail = (ev as CustomEvent<{ name: string; base64: string; mimeType: string }>).detail;
+        if (!detail?.base64) return;
+        const bin = Uint8Array.from(atob(detail.base64), (c) => c.charCodeAt(0));
+        const ext = detail.name.includes('.')
+          ? detail.name.slice(detail.name.lastIndexOf('.')).toLowerCase()
+          : detail.mimeType.includes('pdf')
+            ? '.pdf'
+            : '.png';
+        await openBinaryFiles([{ name: detail.name || 'Dokument.pdf', ext, data: bin }]);
+      };
+      window.addEventListener('android-open-file', onAndroidFile);
+      return () => window.removeEventListener('android-open-file', onAndroidFile);
+    }
     return window.electronAPI.onOpenFiles((paths) => {
       openFilePaths(paths);
     });
   }, [openFilePaths]);
 
   useEffect(() => {
+    if (!isElectron()) return;
     return window.electronAPI.onJustUpdated((version) => {
       showToast(`Update auf v${version} erfolgreich installiert!`);
     });
   }, [showToast]);
 
   useEffect(() => {
+    if (!isElectron()) return;
     return window.electronAPI.onSyncFileReceived((fileName) => {
       showToast(`Vom Handy empfangen & gespeichert: ${fileName}`);
     });
@@ -169,6 +235,7 @@ export const App: React.FC = () => {
 
   // Listen for captured screenshots from global shortcut / Capture button
   useEffect(() => {
+    if (!isElectron()) return;
     return window.electronAPI.onScreenshotCaptured((dataUrl) => {
       const newTab: ImageTab = {
         id: `tab_${Date.now()}`,
@@ -232,6 +299,7 @@ export const App: React.FC = () => {
   }, [isRecording]);
 
   useEffect(() => {
+    if (!isElectron()) return;
     return window.electronAPI.onToggleVideoRecording(() => {
       if (isRecording) {
         stopVideoRecording();
@@ -329,6 +397,13 @@ export const App: React.FC = () => {
   };
 
   const handleOpenDialog = async (mode: 'all' | 'pdf' | 'image' = 'all') => {
+    if (!isElectron()) {
+      const accept =
+        mode === 'pdf' ? '.pdf' : mode === 'image' ? 'image/*' : '.pdf,image/*';
+      const picked = await pickLocalFilesWeb(accept);
+      if (picked.length) await openBinaryFiles(picked);
+      return;
+    }
     const paths = await window.electronAPI.openFiles(mode);
     if (paths.length) await openFilePaths(paths);
   };
@@ -401,38 +476,42 @@ export const App: React.FC = () => {
         >
           <FolderOpen size={15} /> Öffnen
         </button>
-        <button
-          className="btn btn-success"
-          style={{ marginBottom: 6, marginRight: 6, padding: '5px 10px' }}
-          onClick={() => window.electronAPI.startScreenshot()}
-          title="Bildschirmbereich aufnehmen (auch global per Strg+Alt+S)"
-        >
-          <Camera size={15} /> Screenshot
-        </button>
-        {isRecording ? (
-          <button
-            className="btn"
-            style={{
-              marginBottom: 6,
-              marginRight: 6,
-              padding: '5px 10px',
-              background: '#ef4444',
-              color: '#fff',
-            }}
-            onClick={stopVideoRecording}
-            title="Videoaufnahme stoppen (auch global per Strg+Alt+R)"
-          >
-            <Square size={14} /> Stopp ({recordingSeconds}s)
-          </button>
-        ) : (
-          <button
-            className="btn"
-            style={{ marginBottom: 6, marginRight: 6, padding: '5px 10px' }}
-            onClick={() => setShowRecordModal(true)}
-            title="Bildschirmvideo aufnehmen (Strg+Alt+R)"
-          >
-            <Video size={15} color="#ef4444" /> Video
-          </button>
+        {isElectron() && (
+          <>
+            <button
+              className="btn btn-success"
+              style={{ marginBottom: 6, marginRight: 6, padding: '5px 10px' }}
+              onClick={() => window.electronAPI.startScreenshot()}
+              title="Bildschirmbereich aufnehmen (auch global per Strg+Alt+S)"
+            >
+              <Camera size={15} /> Screenshot
+            </button>
+            {isRecording ? (
+              <button
+                className="btn"
+                style={{
+                  marginBottom: 6,
+                  marginRight: 6,
+                  padding: '5px 10px',
+                  background: '#ef4444',
+                  color: '#fff',
+                }}
+                onClick={stopVideoRecording}
+                title="Videoaufnahme stoppen (auch global per Strg+Alt+R)"
+              >
+                <Square size={14} /> Stopp ({recordingSeconds}s)
+              </button>
+            ) : (
+              <button
+                className="btn"
+                style={{ marginBottom: 6, marginRight: 6, padding: '5px 10px' }}
+                onClick={() => setShowRecordModal(true)}
+                title="Bildschirmvideo aufnehmen (Strg+Alt+R)"
+              >
+                <Video size={15} color="#ef4444" /> Video
+              </button>
+            )}
+          </>
         )}
 
         {tabs.map((tab) => (
@@ -466,25 +545,40 @@ export const App: React.FC = () => {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, paddingBottom: 6 }}>
           <button
             className="btn"
-            onClick={() => setShowSyncModal(true)}
+            onClick={() => {
+              if (!isElectron()) {
+                const cur = getPcSyncPairing();
+                const input = window.prompt(
+                  'Sync-Link vom PC einfügen (aus Desktop-App -> Handy-Sync):',
+                  cur ? `${cur.baseUrl}/?token=${cur.token}` : 'http://192.168.2.21:3847/?token='
+                );
+                if (input && setPcSyncPairing(input)) {
+                  showToast('Mit PC gekoppelt! Du kannst jetzt Dateien auf den PC speichern.');
+                }
+                return;
+              }
+              setShowSyncModal(true);
+            }}
             title="Handy per QR-Code verbinden & Dateien synchronisieren"
           >
-            <Smartphone size={14} color="#3b82f6" /> Handy-Sync
+            <Smartphone size={14} color="#3b82f6" /> {isElectron() ? 'Handy-Sync' : 'PC-Kopplung'}
           </button>
-          <button
-            className="btn"
-            onClick={async () => {
-              const res = await window.electronAPI.registerDefaultApp();
-              if (res.ok) {
-                showToast('Als Standard-App registriert. Wähle jetzt in Windows „PDF-Reader Studio“.');
-              } else {
-                showToast(`Fehler: ${res.error}`);
-              }
-            }}
-            title="PDF-Reader Studio als Windows-Standard-App für PDFs & Bilder registrieren"
-          >
-            <ShieldCheck size={14} /> Standard-App
-          </button>
+          {isElectron() && (
+            <button
+              className="btn"
+              onClick={async () => {
+                const res = await window.electronAPI.registerDefaultApp();
+                if (res.ok) {
+                  showToast('Als Standard-App registriert. Wähle jetzt in Windows „PDF-Reader Studio“.');
+                } else {
+                  showToast(`Fehler: ${res.error}`);
+                }
+              }}
+              title="PDF-Reader Studio als Windows-Standard-App für PDFs & Bilder registrieren"
+            >
+              <ShieldCheck size={14} /> Standard-App
+            </button>
+          )}
           <button
             className={`btn ${updateInfo?.hasUpdate ? 'btn-success' : ''}`}
             onClick={handleUpdateClick}

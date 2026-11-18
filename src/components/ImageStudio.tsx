@@ -22,6 +22,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import type { Annotation, AnnotationTool, ImageTab } from '../types';
+import { isElectron, saveBytesBrowserFallback, uploadToPc } from '../utils/platformBridge';
 
 interface ImageStudioProps {
   tab: ImageTab;
@@ -241,8 +242,19 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dataUrl = canvas.toDataURL('image/png');
-    await window.electronAPI.writeClipboardImage(dataUrl);
-    onToast('Bild mit KI-Markierungen in Zwischenablage kopiert (Strg+V bereit).');
+    if (isElectron()) {
+      await window.electronAPI.writeClipboardImage(dataUrl);
+      onToast('Bild mit KI-Markierungen in Zwischenablage kopiert (Strg+V bereit).');
+    } else {
+      try {
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        onToast('Bild in Zwischenablage kopiert.');
+      } catch {
+        onToast('Zwischenablage wird auf diesem Gerät nicht unterstützt — nutze Speichern.');
+      }
+    }
   };
 
   const savePng = async () => {
@@ -252,6 +264,11 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
     const base64 = dataUrl.split(',')[1];
     const bin = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
     const defaultName = tab.title.replace(/\.[^.]+$/, '') + '_markiert.png';
+    if (!isElectron()) {
+      saveBytesBrowserFallback(defaultName, bin, 'image/png');
+      onToast('Bild gespeichert.');
+      return;
+    }
     const res = await window.electronAPI.saveBinary({
       defaultPath: defaultName,
       filters: [{ name: 'PNG-Bild', extensions: ['png'] }],
@@ -599,28 +616,46 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          <button
-            className={`btn ${showAiPanel ? 'active' : ''}`}
-            onClick={async () => {
-              setShowAiPanel(true);
-              if (!ocrText && canvasRef.current) {
-                setOcrLoading(true);
-                const res = await window.electronAPI.extractOcrText(
-                  canvasRef.current.toDataURL('image/png')
-                );
-                setOcrLoading(false);
-                setOcrText(res.text || '');
-                if (res.text) {
-                  onToast('Text aus Bild ausgelesen.');
-                } else {
-                  onToast('Kein Text erkannt.');
+          {isElectron() && (
+            <button
+              className={`btn ${showAiPanel ? 'active' : ''}`}
+              onClick={async () => {
+                setShowAiPanel(true);
+                if (!ocrText && canvasRef.current) {
+                  setOcrLoading(true);
+                  const res = await window.electronAPI.extractOcrText(
+                    canvasRef.current.toDataURL('image/png')
+                  );
+                  setOcrLoading(false);
+                  setOcrText(res.text || '');
+                  if (res.text) {
+                    onToast('Text aus Bild ausgelesen.');
+                  } else {
+                    onToast('Kein Text erkannt.');
+                  }
                 }
-              }
-            }}
-            title="Text aus dem Bild/Screenshot auslesen (Windows OCR) & KI-Kommentare öffnen"
-          >
-            <ScanText size={15} /> Text auslesen / KI-Notiz
-          </button>
+              }}
+              title="Text aus dem Bild/Screenshot auslesen (Windows OCR) & KI-Kommentare öffnen"
+            >
+              <ScanText size={15} /> Text auslesen / KI-Notiz
+            </button>
+          )}
+          {!isElectron() && (
+            <button
+              className="btn btn-primary"
+              onClick={async () => {
+                if (!canvasRef.current) return;
+                const dataUrl = canvasRef.current.toDataURL('image/png');
+                const base64 = dataUrl.split(',')[1];
+                const bin = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+                const name = tab.title.replace(/\.[^.]+$/, '') + '_markiert.png';
+                const res = await uploadToPc(name, bin);
+                onToast(res.ok ? `Auf PC gespeichert: ${res.savedName}` : res.error || 'Fehler');
+              }}
+            >
+              Auf PC speichern
+            </button>
+          )}
           <button
             className="btn btn-success"
             onClick={copyToClipboard}

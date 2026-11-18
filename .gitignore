@@ -3,3 +3,7 @@ dist/
 dist-electron/
 release/
 *.log
+android/app/build/
+android/.gradle/
+android/local.properties
+android/build/
