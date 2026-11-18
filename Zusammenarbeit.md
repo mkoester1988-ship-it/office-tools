@@ -43,7 +43,7 @@ nur beantwortet.
 
 | Kürzel | Agent | Aufgabe | Ergebnis | Am |
 |---|---|---|---|---|
-| PDF-01 | Antigravity | Projektanlage und Bau v1 (PDF-Reader, Part-Splitter, KI-Bildstudio & Windows-Installer) | `release\PDF-Reader Studio Setup 1.0.0.exe` gebaut & geprüft | 18.11.2026 |
+| PDF-01 | Antigravity | Projektanlage, Bau bis `v1.4.4` (Desktop, Web-Installer, GitHub Releases `office-tools`, Handy-Sync & Android-APK inkl. Live-QA) | `release\PDF-Reader Studio Setup 1.4.4.exe`, `release\OfficeTools-Installer.exe`, `release\PDF-Reader-Studio.apk`, GitHub `v1.4.4` | 18.11.2026 |
 
 ## Verwandt
 

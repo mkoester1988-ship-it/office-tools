@@ -7,6 +7,7 @@ import {
   Image as ImageIcon,
   Moon,
   RefreshCw,
+  Settings,
   ShieldCheck,
   Smartphone,
   Square,
@@ -22,6 +23,7 @@ import { VideoStudio } from './components/VideoStudio';
 import { RecordModal } from './components/RecordModal';
 import { SyncModal } from './components/SyncModal';
 import { MobilePairModal } from './components/MobilePairModal';
+import { SettingsModal } from './components/SettingsModal';
 import {
   APP_VERSION,
   getPcSyncPairing,
@@ -64,6 +66,7 @@ export const App: React.FC = () => {
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [showMobilePairModal, setShowMobilePairModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -611,6 +614,15 @@ export const App: React.FC = () => {
           >
             {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
           </button>
+          {isElectron() && (
+            <button
+              className="btn"
+              onClick={() => setShowSettingsModal(true)}
+              title="Einstellungen & Tastenkürzel"
+            >
+              <Settings size={15} />
+            </button>
+          )}
         </div>
       </header>
 
@@ -748,6 +760,13 @@ export const App: React.FC = () => {
         <MobilePairModal
           onClose={() => setShowMobilePairModal(false)}
           onPaired={() => setShowMobilePairModal(false)}
+          onToast={showToast}
+        />
+      )}
+
+      {showSettingsModal && (
+        <SettingsModal
+          onClose={() => setShowSettingsModal(false)}
           onToast={showToast}
         />
       )}

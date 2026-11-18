@@ -22,6 +22,10 @@ export interface ElectronAPI {
   showItemInFolder: (targetPath: string) => Promise<boolean>;
   printWindow: () => Promise<boolean>;
   getSyncStatus: () => Promise<SyncStatus | null>;
+  getSettings: () => Promise<AppSettings>;
+  updateSettings: (
+    patch: Partial<AppSettings>
+  ) => Promise<{ settings: AppSettings; shortcutError?: string }>;
   chooseSyncDir: () => Promise<SyncStatus | null>;
   setSyncAutoOpen: (autoOpen: boolean) => Promise<SyncStatus | null>;
   regenerateSyncToken: () => Promise<SyncStatus | null>;
@@ -115,6 +119,15 @@ export interface ImageTab {
   filePath?: string;
   dataUrl: string;
   siblingPaths: string[];
+}
+
+export interface AppSettings {
+  minimizeToTray: boolean;
+  startWithWindows: boolean;
+  autoOpenClipboardScreenshots: boolean;
+  bringToFrontOnCapture: boolean;
+  screenshotShortcut: string;
+  videoShortcut: string;
 }
 
 export interface SyncStatus {

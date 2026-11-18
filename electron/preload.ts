@@ -32,6 +32,9 @@ const api = {
     ipcRenderer.invoke('shell:showItemInFolder', targetPath),
   printWindow: (): Promise<boolean> => ipcRenderer.invoke('app:print'),
   getSyncStatus: (): Promise<unknown> => ipcRenderer.invoke('sync:getStatus'),
+  getSettings: (): Promise<unknown> => ipcRenderer.invoke('settings:get'),
+  updateSettings: (patch: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('settings:update', patch),
   chooseSyncDir: (): Promise<unknown> => ipcRenderer.invoke('sync:chooseDir'),
   setSyncAutoOpen: (autoOpen: boolean): Promise<unknown> =>
     ipcRenderer.invoke('sync:setAutoOpen', autoOpen),

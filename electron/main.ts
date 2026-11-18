@@ -39,11 +39,86 @@ let mainWindow: BrowserWindow | null = null;
 let snipWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
-let autoOpenClipboardScreenshots = true;
 let lastClipboardHash = '';
 let clipboardTimer: ReturnType<typeof setInterval> | null = null;
 let syncServer: MobileSyncServer | null = null;
 const pendingFiles: string[] = [];
+
+interface AppSettings {
+  minimizeToTray: boolean;
+  startWithWindows: boolean;
+  autoOpenClipboardScreenshots: boolean;
+  bringToFrontOnCapture: boolean;
+  screenshotShortcut: string;
+  videoShortcut: string;
+}
+
+const DEFAULT_SETTINGS: AppSettings = {
+  minimizeToTray: true,
+  startWithWindows: true,
+  autoOpenClipboardScreenshots: true,
+  bringToFrontOnCapture: true,
+  screenshotShortcut: 'CommandOrControl+Alt+S',
+  videoShortcut: 'CommandOrControl+Alt+R',
+};
+
+let appSettings: AppSettings = { ...DEFAULT_SETTINGS };
+
+function getSettingsPath(): string {
+  return path.join(app.getPath('userData'), 'app-settings.json');
+}
+
+async function loadSettings(): Promise<void> {
+  try {
+    const raw = await fs.readFile(getSettingsPath(), 'utf8');
+    const parsed = JSON.parse(raw) as Partial<AppSettings>;
+    appSettings = { ...DEFAULT_SETTINGS, ...parsed };
+  } catch {
+    appSettings = { ...DEFAULT_SETTINGS };
+  }
+}
+
+async function saveSettings(): Promise<void> {
+  await fs.writeFile(getSettingsPath(), JSON.stringify(appSettings, null, 2), 'utf8');
+}
+
+function applyRuntimeSettings(): { shortcutError?: string } {
+  if (app.isPackaged) {
+    app.setLoginItemSettings({
+      openAtLogin: appSettings.startWithWindows,
+      args: ['--hidden'],
+    });
+  }
+  globalShortcut.unregisterAll();
+  let shortcutError: string | undefined;
+  try {
+    if (appSettings.screenshotShortcut) {
+      const ok = globalShortcut.register(appSettings.screenshotShortcut, () => {
+        startScreenshotCapture();
+      });
+      if (!ok) shortcutError = `Shortcut „${appSettings.screenshotShortcut}“ ist bereits belegt.`;
+    }
+  } catch {
+    shortcutError = `Ungültiger Screenshot-Shortcut: „${appSettings.screenshotShortcut}“.`;
+  }
+  try {
+    if (appSettings.videoShortcut) {
+      const ok = globalShortcut.register(appSettings.videoShortcut, () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('app:toggle-video-recording');
+        }
+      });
+      if (!ok && !shortcutError) {
+        shortcutError = `Shortcut „${appSettings.videoShortcut}“ ist bereits belegt.`;
+      }
+    }
+  } catch {
+    if (!shortcutError) {
+      shortcutError = `Ungültiger Video-Shortcut: „${appSettings.videoShortcut}“.`;
+    }
+  }
+  return { shortcutError };
+}
 
 function extractFilePathsFromArgv(argv: string[]): string[] {
   const found: string[] = [];
@@ -253,7 +328,7 @@ function createWindow(): void {
   });
 
   mainWindow.on('close', (event) => {
-    if (!isQuitting) {
+    if (!isQuitting && appSettings.minimizeToTray) {
       event.preventDefault();
       mainWindow?.hide();
     }
@@ -307,9 +382,10 @@ function createTray(): void {
       {
         label: 'Auto-Öffnen bei Windows-Screenshot (Druck / Win+Shift+S)',
         type: 'checkbox',
-        checked: autoOpenClipboardScreenshots,
+        checked: appSettings.autoOpenClipboardScreenshots,
         click: (item) => {
-          autoOpenClipboardScreenshots = item.checked;
+          appSettings.autoOpenClipboardScreenshots = item.checked;
+          saveSettings().catch(() => {});
         },
       },
       { type: 'separator' },
@@ -354,7 +430,7 @@ function startClipboardWatcher(): void {
   }
 
   clipboardTimer = setInterval(() => {
-    if (!autoOpenClipboardScreenshots) return;
+    if (!appSettings.autoOpenClipboardScreenshots) return;
     try {
       const img = clipboard.readImage();
       if (img.isEmpty()) return;
@@ -364,7 +440,9 @@ function startClipboardWatcher(): void {
       if (h === lastClipboardHash) return;
       lastClipboardHash = h;
       const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
-      bringMainWindowToFront();
+      if (appSettings.bringToFrontOnCapture) {
+        bringMainWindowToFront();
+      }
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('app:screenshot-captured', dataUrl);
       }
@@ -374,16 +452,12 @@ function startClipboardWatcher(): void {
   }, 450);
 }
 
-app.whenReady().then(() => {
-  if (app.isPackaged) {
-    app.setLoginItemSettings({
-      openAtLogin: true,
-      args: ['--hidden'],
-    });
-  }
+app.whenReady().then(async () => {
+  await loadSettings();
   createWindow();
   createTray();
   startClipboardWatcher();
+  applyRuntimeSettings();
   syncServer = new MobileSyncServer(
     app.getPath('userData'),
     app.getPath('downloads'),
@@ -397,14 +471,6 @@ app.whenReady().then(() => {
     }
   );
   syncServer.init().catch(() => {});
-  globalShortcut.register('CommandOrControl+Alt+S', () => {
-    startScreenshotCapture();
-  });
-  globalShortcut.register('CommandOrControl+Alt+R', () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('app:toggle-video-recording');
-    }
-  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -657,6 +723,17 @@ ipcMain.handle('clipboard:writeText', async (_event, text: string) => {
 ipcMain.handle('shell:showItemInFolder', async (_event, targetPath: string) => {
   shell.showItemInFolder(targetPath);
   return true;
+});
+
+ipcMain.handle('settings:get', async () => {
+  return appSettings;
+});
+
+ipcMain.handle('settings:update', async (_event, patch: Partial<AppSettings>) => {
+  appSettings = { ...appSettings, ...patch };
+  await saveSettings();
+  const { shortcutError } = applyRuntimeSettings();
+  return { settings: appSettings, shortcutError };
 });
 
 ipcMain.handle('sync:getStatus', async () => {
