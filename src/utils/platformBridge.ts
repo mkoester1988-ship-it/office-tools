@@ -1,4 +1,14 @@
-export const APP_VERSION = '1.4.0';
+export const APP_VERSION = '1.4.1';
+
+declare global {
+  interface Window {
+    AndroidNative?: {
+      consumePendingFile: () => string | null;
+      saveBase64ToDownloads: (fileName: string, mimeType: string, base64Data: string) => string;
+      installApkFromUrl: (apkUrl: string) => void;
+    };
+  }
+}
 
 export const isElectron = (): boolean =>
   typeof window !== 'undefined' && Boolean(window.electronAPI);
@@ -44,7 +54,7 @@ export async function uploadToPc(
 ): Promise<{ ok: boolean; savedName?: string; error?: string }> {
   const pairing = getPcSyncPairing();
   if (!pairing) {
-    return { ok: false, error: 'Bitte zuerst mit dem PC koppeln (Sync-Link / QR).' };
+    return { ok: false, error: 'Bitte zuerst unter „PC-Kopplung“ mit dem PC verbinden.' };
   }
   try {
     const res = await fetch(
@@ -62,11 +72,24 @@ export async function uploadToPc(
   }
 }
 
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
 export function saveBytesBrowserFallback(
   fileName: string,
   bytes: Uint8Array,
   mimeType = 'application/pdf'
-): void {
+): string {
+  if (typeof window !== 'undefined' && window.AndroidNative) {
+    const b64 = uint8ToBase64(bytes);
+    return window.AndroidNative.saveBase64ToDownloads(fileName, mimeType, b64);
+  }
   const blob = new Blob([new Uint8Array(bytes)], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -76,6 +99,7 @@ export function saveBytesBrowserFallback(
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
+  return `OK:${fileName}`;
 }
 
 export function pickLocalFilesWeb(

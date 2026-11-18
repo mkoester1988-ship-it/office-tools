@@ -163,7 +163,12 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   onSendImageToStudio,
   onToast,
 }) => {
-  const [zoom, setZoom] = useState<number>(1.25);
+  const [zoom, setZoom] = useState<number>(() =>
+    typeof window !== 'undefined' && window.innerWidth < 768 ? 0.65 : 1.25
+  );
+  const [showSidebar, setShowSidebar] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : true
+  );
   const [viewMode, setViewMode] = useState<'single' | 'scroll'>('single');
   const [sidebarTab, setSidebarTab] = useState<'pages' | 'parts' | 'outline' | 'form'>('pages');
   const [searchQuery, setSearchQuery] = useState('');
@@ -627,6 +632,13 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
       <div className="toolbar">
         <div className="toolbar-group">
           <button
+            className={`btn ${showSidebar ? 'active' : ''}`}
+            onClick={() => setShowSidebar((s) => !s)}
+            title="Seitenleiste ein-/ausblenden"
+          >
+            Seiten
+          </button>
+          <button
             className="btn"
             onClick={() => goToPage(tab.activePageIndex - 1)}
             disabled={tab.activePageIndex <= 0}
@@ -805,6 +817,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
       {/* Main Split Body */}
       <div className="workspace-body">
         {/* Left Sidebar */}
+        {showSidebar && (
         <aside className="sidebar" style={{ width: sidebarTab === 'form' ? 290 : 248 }}>
           <div className="sidebar-tabs">
             <button
@@ -1072,6 +1085,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
             </div>
           )}
         </aside>
+        )}
 
         {/* Main Viewport */}
         <main className="main-viewport" ref={viewportRef}>

@@ -698,13 +698,19 @@ export const ImageStudio: React.FC<ImageStudioProps> = ({
         >
           <canvas
             ref={canvasRef}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
+            onPointerDown={(e) => {
+              e.currentTarget.setPointerCapture(e.pointerId);
+              handleMouseDown(e as unknown as React.MouseEvent<HTMLCanvasElement>);
+            }}
+            onPointerMove={(e) =>
+              handleMouseMove(e as unknown as React.MouseEvent<HTMLCanvasElement>)
+            }
+            onPointerUp={() => handleMouseUp()}
             style={{
               width: imgEl ? imgEl.naturalWidth * zoom : undefined,
               height: imgEl ? imgEl.naturalHeight * zoom : undefined,
               display: 'block',
+              touchAction: 'none',
               imageRendering: zoom >= 2.5 ? 'pixelated' : 'auto',
             }}
           />

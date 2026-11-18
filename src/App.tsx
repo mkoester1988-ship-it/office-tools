@@ -62,6 +62,11 @@ export const App: React.FC = () => {
   } | null>(null);
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
+  const [showMobilePairModal, setShowMobilePairModal] = useState(false);
+  const [mobilePairInput, setMobilePairInput] = useState(() => {
+    const cur = getPcSyncPairing();
+    return cur ? `${cur.baseUrl}/?token=${cur.token}` : 'http://192.168.2.21:3847/?token=';
+  });
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -85,21 +90,22 @@ export const App: React.FC = () => {
     if (!isElectron()) {
       const pairing = getPcSyncPairing();
       if (!pairing) {
-        const input = window.prompt(
-          'Sync-Link vom PC einfügen (z. B. http://192.168.2.21:3847/?token=...):'
-        );
-        if (!input || !setPcSyncPairing(input)) {
-          showToast('Ungültiger Sync-Link.');
-          return;
-        }
+        setShowMobilePairModal(true);
+        showToast('Bitte zuerst den Sync-Link vom PC eingeben.');
+        return;
       }
-      const p = getPcSyncPairing()!;
       try {
-        const res = await fetch(`${p.baseUrl}/api/apk-version?token=${encodeURIComponent(p.token)}`);
+        const res = await fetch(`${pairing.baseUrl}/api/apk-version?token=${encodeURIComponent(pairing.token)}`);
         const data = (await res.json()) as { available?: boolean; version?: string };
         if (data.available && data.version && data.version !== APP_VERSION) {
           if (window.confirm(`Neue Handy-App v${data.version} auf deinem PC gefunden. Jetzt herunterladen & installieren?`)) {
-            window.location.href = `${p.baseUrl}/api/download-apk?token=${encodeURIComponent(p.token)}`;
+            const apkUrl = `${pairing.baseUrl}/api/download-apk?token=${encodeURIComponent(pairing.token)}`;
+            if (window.AndroidNative) {
+              showToast('Lade Update vom PC...');
+              window.AndroidNative.installApkFromUrl(apkUrl);
+            } else {
+              window.location.href = apkUrl;
+            }
           }
         } else {
           showToast(`Handy-App ist aktuell (v${APP_VERSION}).`);
@@ -200,8 +206,7 @@ export const App: React.FC = () => {
   // Listen for files opened via Windows Explorer double-click / CLI args (Desktop) or Android Intent
   useEffect(() => {
     if (!isElectron()) {
-      const onAndroidFile = async (ev: Event) => {
-        const detail = (ev as CustomEvent<{ name: string; base64: string; mimeType: string }>).detail;
+      const openDetail = async (detail: { name: string; base64: string; mimeType: string }) => {
         if (!detail?.base64) return;
         const bin = Uint8Array.from(atob(detail.base64), (c) => c.charCodeAt(0));
         const ext = detail.name.includes('.')
@@ -211,13 +216,26 @@ export const App: React.FC = () => {
             : '.png';
         await openBinaryFiles([{ name: detail.name || 'Dokument.pdf', ext, data: bin }]);
       };
+
+      const pendingRaw = window.AndroidNative?.consumePendingFile();
+      if (pendingRaw) {
+        try {
+          openDetail(JSON.parse(pendingRaw));
+        } catch {
+          // ignore
+        }
+      }
+
+      const onAndroidFile = async (ev: Event) => {
+        await openDetail((ev as CustomEvent<{ name: string; base64: string; mimeType: string }>).detail);
+      };
       window.addEventListener('android-open-file', onAndroidFile);
       return () => window.removeEventListener('android-open-file', onAndroidFile);
     }
     return window.electronAPI.onOpenFiles((paths) => {
       openFilePaths(paths);
     });
-  }, [openFilePaths]);
+  }, [openFilePaths, openBinaryFiles]);
 
   useEffect(() => {
     if (!isElectron()) return;
@@ -547,14 +565,7 @@ export const App: React.FC = () => {
             className="btn"
             onClick={() => {
               if (!isElectron()) {
-                const cur = getPcSyncPairing();
-                const input = window.prompt(
-                  'Sync-Link vom PC einfügen (aus Desktop-App -> Handy-Sync):',
-                  cur ? `${cur.baseUrl}/?token=${cur.token}` : 'http://192.168.2.21:3847/?token='
-                );
-                if (input && setPcSyncPairing(input)) {
-                  showToast('Mit PC gekoppelt! Du kannst jetzt Dateien auf den PC speichern.');
-                }
+                setShowMobilePairModal(true);
                 return;
               }
               setShowSyncModal(true);
@@ -626,45 +637,61 @@ export const App: React.FC = () => {
               </p>
             </div>
 
-            <div
-              className="welcome-card"
-              onClick={() => window.electronAPI.startScreenshot()}
-            >
-              <Camera size={28} color="#ec4899" />
-              <h3 style={{ margin: '12px 0 6px 0', fontSize: 16 }}>
-                Screenshot für KI (Strg+Alt+S)
-              </h3>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
-                Bereich aufnehmen, sofort in Zwischenablage, Text per OCR auslesen und schnell
-                Kommentare & Markierungen setzen.
-              </p>
-            </div>
+            {isElectron() ? (
+              <>
+                <div
+                  className="welcome-card"
+                  onClick={() => window.electronAPI.startScreenshot()}
+                >
+                  <Camera size={28} color="#ec4899" />
+                  <h3 style={{ margin: '12px 0 6px 0', fontSize: 16 }}>
+                    Screenshot für KI (Strg+Alt+S)
+                  </h3>
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
+                    Bereich aufnehmen, sofort in Zwischenablage, Text per OCR auslesen und schnell
+                    Kommentare & Markierungen setzen.
+                  </p>
+                </div>
 
-            <div
-              className="welcome-card"
-              onClick={() => setShowRecordModal(true)}
-            >
-              <Video size={28} color="#ef4444" />
-              <h3 style={{ margin: '12px 0 6px 0', fontSize: 16 }}>
-                Bildschirmvideo (Strg+Alt+R)
-              </h3>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
-                Bildschirm oder Fenster mit optionalem Mikrofon aufnehmen, abspielen, Einzelbild
-                markieren & speichern.
-              </p>
-            </div>
+                <div
+                  className="welcome-card"
+                  onClick={() => setShowRecordModal(true)}
+                >
+                  <Video size={28} color="#ef4444" />
+                  <h3 style={{ margin: '12px 0 6px 0', fontSize: 16 }}>
+                    Bildschirmvideo (Strg+Alt+R)
+                  </h3>
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
+                    Bildschirm oder Fenster mit optionalem Mikrofon aufnehmen, abspielen, Einzelbild
+                    markieren & speichern.
+                  </p>
+                </div>
 
-            <div
-              className="welcome-card"
-              onClick={() => showToast('Drücke Strg+V, um ein Bild aus der Zwischenablage zu öffnen.')}
-            >
-              <ClipboardPaste size={28} color="#f59e0b" />
-              <h3 style={{ margin: '12px 0 6px 0', fontSize: 16 }}>Screenshot einfügen (Strg+V)</h3>
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
-                Direkt nach Win+Shift+S hier mit Strg+V einfügen, markieren und mit Strg+C an die
-                KI übergeben.
-              </p>
-            </div>
+                <div
+                  className="welcome-card"
+                  onClick={() => showToast('Drücke Strg+V, um ein Bild aus der Zwischenablage zu öffnen.')}
+                >
+                  <ClipboardPaste size={28} color="#f59e0b" />
+                  <h3 style={{ margin: '12px 0 6px 0', fontSize: 16 }}>Screenshot einfügen (Strg+V)</h3>
+                  <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
+                    Direkt nach Win+Shift+S hier mit Strg+V einfügen, markieren und mit Strg+C an die
+                    KI übergeben.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div
+                className="welcome-card"
+                onClick={() => setShowMobilePairModal(true)}
+              >
+                <Smartphone size={28} color="#3b82f6" />
+                <h3 style={{ margin: '12px 0 6px 0', fontSize: 16 }}>Mit PC koppeln</h3>
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
+                  Einmal mit deinem PC verbinden, um PDFs/Bilder direkt auf den PC zu speichern und
+                  Updates zu laden.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       ) : activeTab.kind === 'pdf' ? (
@@ -709,6 +736,65 @@ export const App: React.FC = () => {
           onClose={() => setShowSyncModal(false)}
           onToast={showToast}
         />
+      )}
+
+      {showMobilePairModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9000,
+            padding: 18,
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--bg-panel)',
+              border: '1px solid var(--border-strong)',
+              borderRadius: 14,
+              padding: 18,
+              width: '100%',
+              maxWidth: 420,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+          >
+            <strong style={{ fontSize: 15 }}>Mit PC koppeln</strong>
+            <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+              Kopiere den Sync-Link aus „Handy-Sync“ auf deinem PC hier hinein:
+            </span>
+            <input
+              className="input-compact"
+              style={{ width: '100%', padding: '8px 10px' }}
+              value={mobilePairInput}
+              onChange={(e) => setMobilePairInput(e.target.value)}
+              placeholder="http://192.168.2.21:3847/?token=..."
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn" onClick={() => setShowMobilePairModal(false)}>
+                Abbrechen
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  if (setPcSyncPairing(mobilePairInput)) {
+                    setShowMobilePairModal(false);
+                    showToast('Mit PC gekoppelt!');
+                  } else {
+                    showToast('Ungültiger Sync-Link (token=... fehlt).');
+                  }
+                }}
+              >
+                Verbinden
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && <div className="toast">{toast}</div>}
