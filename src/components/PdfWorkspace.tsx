@@ -770,6 +770,12 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
               style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }}
             />
             <button
+              onPointerDown={(e) => {
+                e.stopPropagation();
+              }}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+              }}
               onClick={(e) => {
                 e.stopPropagation();
                 onUpdateTab((prev) => ({
@@ -782,14 +788,18 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
                 position: 'absolute',
                 top: -10,
                 right: -10,
-                width: 20,
-                height: 20,
+                width: 22,
+                height: 22,
                 borderRadius: '50%',
                 border: 'none',
                 background: '#ef4444',
                 color: '#fff',
-                fontSize: 11,
+                fontSize: 12,
+                lineHeight: '22px',
+                textAlign: 'center',
+                padding: 0,
                 cursor: 'pointer',
+                zIndex: 5,
               }}
             >
               ✕

@@ -97,6 +97,7 @@ export interface SavedSignature {
   id: string;
   name: string;
   dataUrl: string; // Transparent PNG data URL
+  cleanedV2?: boolean;
 }
 
 export interface PdfSignaturePlacement {

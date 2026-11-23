@@ -219,6 +219,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   onToast,
 }) => {
   const [saved, setSaved] = useState<SavedSignature[]>(() => loadSavedSignatures());
+  const [editingSigId, setEditingSigId] = useState<string | null>(null);
   const [mode, setMode] = useState<'draw' | 'upload'>('draw');
   const [drawColor, setDrawColor] = useState<'#0f172a' | '#1e3a8a' | '#1d4ed8'>('#0f172a');
   const [isDrawing, setIsDrawing] = useState(false);
@@ -229,6 +230,38 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   const [inkColor, setInkColor] = useState<'original' | '#0f172a' | '#1e3a8a' | '#1d4ed8'>('#0f172a');
   const [processedPreview, setProcessedPreview] = useState<string>('');
   const [sigName, setSigName] = useState('Meine Unterschrift');
+
+  // Auto-clean legacy saved signatures (from v1.6.0/v1.6.1) that still had gray paper background
+  useEffect(() => {
+    const needsClean = saved.some((s) => !s.cleanedV2);
+    if (!needsClean) return;
+    let cancelled = false;
+    Promise.all(
+      saved.map(
+        (sig) =>
+          new Promise<SavedSignature>((resolve) => {
+            if (sig.cleanedV2) {
+              resolve(sig);
+              return;
+            }
+            const img = new Image();
+            img.onload = () => {
+              const cleanedUrl = processUploadedSignature(img, 55, 'original');
+              resolve({ ...sig, dataUrl: cleanedUrl || sig.dataUrl, cleanedV2: true });
+            };
+            img.onerror = () => resolve({ ...sig, cleanedV2: true });
+            img.src = sig.dataUrl;
+          })
+      )
+    ).then((upgraded) => {
+      if (cancelled) return;
+      setSaved(upgraded);
+      saveSignaturesToStorage(upgraded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!rawImg) return;
@@ -253,12 +286,16 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   const handleSaveAndUse = (dataUrl: string) => {
     if (!dataUrl) return;
     const entry: SavedSignature = {
-      id: `sig_${Date.now()}`,
+      id: editingSigId ?? `sig_${Date.now()}`,
       name: sigName.trim() || 'Unterschrift',
       dataUrl,
+      cleanedV2: true,
     };
-    const next = [entry, ...saved];
+    const next = editingSigId
+      ? saved.map((s) => (s.id === editingSigId ? entry : s))
+      : [entry, ...saved];
     setSaved(next);
+    setEditingSigId(null);
     saveSignaturesToStorage(next);
     onToast('Unterschrift gespeichert! Klicke jetzt auf die PDF-Seite.');
     onSelectForPlacement(dataUrl);
@@ -377,6 +414,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                         onClick={() => {
                           const img = new Image();
                           img.onload = () => {
+                            setEditingSigId(sig.id);
                             setRawImg(img);
                             setSigName(sig.name);
                             setMode('upload');
