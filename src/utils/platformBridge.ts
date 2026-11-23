@@ -1,4 +1,4 @@
-export const APP_VERSION = '1.6.3';
+export const APP_VERSION = '1.7.0';
 
 declare global {
   interface Window {

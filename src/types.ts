@@ -110,6 +110,28 @@ export interface PdfSignaturePlacement {
   hNorm: number;
 }
 
+export interface PdfTextAnnotation {
+  id: string;
+  pageId: string;
+  text: string;
+  xNorm: number; // 0..1 relative to page width
+  yNorm: number; // 0..1 relative to page height (top-down)
+  fontSize: number; // PDF points (e.g. 12, 14, 16)
+  color: string; // Hex color
+}
+
+export interface PageFormWidget {
+  id: string;
+  fieldName: string;
+  fieldType: 'Tx' | 'Btn' | 'Ch';
+  isCheckBox?: boolean;
+  xNorm: number;
+  yNorm: number;
+  wNorm: number;
+  hNorm: number;
+  options?: string[];
+}
+
 export interface PdfFormFieldValue {
   name: string;
   kind: 'text' | 'checkbox' | 'dropdown' | 'radio';
@@ -127,6 +149,7 @@ export interface PdfTab {
   activePageIndex: number; // 0-based index in pages
   highlights?: PdfHighlight[];
   signatures?: PdfSignaturePlacement[];
+  textAnnotations?: PdfTextAnnotation[];
   formValues?: Record<string, string | boolean>;
 }
 

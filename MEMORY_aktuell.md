@@ -9,9 +9,13 @@ Stand: 2026-11-23 · Kürzel: `PDF` · Phase: `live` · Sensibilität: 🟢
 - **Kosten & Break-Even:** 0 € laufende Kosten (100 % lokal, keine Cloud/API).
 - **Risiken & Leitplanken:** `C:\Program Files\Adobe\Acrobat DC\` wird nur read-only analysiert; keine proprietären Assets oder Icons übernommen.
 
-## Aktueller Stand (v1.6.3, 2026-11-23)
+## Aktueller Stand (v1.7.0, 2026-11-23)
 
-- **App gebaut & verifiziert:** `npm run build`, Android-APK (`versionCode 11`, `versionName "1.6.3"`) + `electron-builder` (`PDF-Reader Studio Setup 1.6.3.exe`) fehlerfrei, GitHub-Repo `mkoester1988-ship-it/office-tools` + GitHub Releases (`v1.2.7` bis `v1.6.3`) live.
+- **App gebaut & verifiziert:** `npm run build`, Android-APK (`versionCode 12`, `versionName "1.7.0"`) + `electron-builder` (`PDF-Reader Studio Setup 1.7.0.exe`) fehlerfrei, GitHub-Repo `mkoester1988-ship-it/office-tools` + GitHub Releases (`v1.2.7` bis `v1.7.0`) live.
+- **Neu in `v1.7.0` (Text-Werkzeug, Datum-Stempel & Direkt-Formularfelder):**
+  - **`T Text`-Werkzeug:** Beliebige Textfelder direkt per Klick auf PDF-Seiten setzen und beschreiben (Schriftgröße `10–22 pt`, Farbe Schwarz/Dunkelblau/Rot, frei verschiebbar über `⠿`, löschbar mit `✕`, sauberer Export über `pdf-lib` `StandardFonts.Helvetica`).
+  - **`📅 Datum`-Stempel:** 1-Klick-Button für das heutige Datum (`TT.MM.JJJJ`) zum direkten Platzieren wie ein Stempel auf jeder PDF-Seite.
+  - **Direkte AcroForm-Felder auf der Seite (`PageFormOverlay`):** Vorhandene PDF-Formularfelder (Textfelder, Checkboxen, Dropdowns) lassen sich jetzt direkt auf der PDF-Seite anklicken und ausfüllen (synchron mit `tab.formValues`).
 - **Neu in `v1.6.0`–`v1.6.3` (Unterschrift-Studio):** Toolbar-Button `✍️ Unterschrift` (`SignatureModal.tsx`) zum Zeichnen und dauerhaften Speichern eigener Unterschriften sowie zum **Importieren von PNG/JPG/WebP-Unterschriften mit lokaler adaptiver Papierhintergrund-Entfernung** (inkl. Weiß-Compositing vorab, automatische Altbestands-Bereinigung gespeicherter Unterschriften aus `v1.6.0`/`v1.6.1`, Stärke-Regler `0–100 %`, Farbanpassung Original/Schwarz/Dunkelblau/Blau). Rotes `✕` zum Löschen platzierter Unterschriften blockiert Pointer-Capture sauber (`onPointerDown` + `onMouseDown`), und die Scroll-Position der PDF-Seite bleibt beim Öffnen/Schließen des Unterschrift-Fensters sowie beim Platzieren erhalten (`React.memo` auf `PageCanvas`). Alle PDF-Exporte betten Unterschriften sauber über `pdf-lib` (`embedPng`) ein.
 - **Neu in `v1.5.0`:** Eigenes **Einstellungen & Tastenkürzel**-Menü (`SettingsModal.tsx`, persistent in `app-settings.json`): Hintergrund-/Tray-Verhalten beim Schließen (`X`), Windows-Autostart, Vordergrund-Fokus bei neuen Screenshots sowie frei belegbare globale Tastenkürzel.
 - **Windows-Installer fertig:** `D:\KI-Arbeitsbereich\PDF-Reader\release\PDF-Reader Studio Setup 1.2.6.exe` (NSIS-Setup mit Dateizuordnungen für `.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.gif`), **1-Klick-Update-Button** (`cmd /c start` + `--just-updated` Erfolgstoast) sowie **Standard-App-Button** (`RegisteredApplications` + `ms-settings:defaultapps`).

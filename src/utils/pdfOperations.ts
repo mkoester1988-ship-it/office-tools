@@ -4,16 +4,19 @@ import {
   PDFDropdown,
   PDFRadioGroup,
   PDFTextField,
+  StandardFonts,
   degrees,
   rgb,
 } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type {
+  PageFormWidget,
   PdfFormFieldValue,
   PdfHighlight,
   PdfSignaturePlacement,
   PdfSource,
+  PdfTextAnnotation,
   VirtualPage,
 } from '../types';
 
@@ -131,12 +134,69 @@ function hexToRgbTuple(hex: string): [number, number, number] {
   return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
 }
 
+export async function readPageFormWidgets(
+  source: PdfSource,
+  pageIndex0: number,
+  extraRotation = 0
+): Promise<PageFormWidget[]> {
+  try {
+    const doc = await getPdfJsDoc(source);
+    const page = await doc.getPage(pageIndex0 + 1);
+    const viewport = page.getViewport({
+      scale: 1,
+      rotation: (page.rotate + extraRotation) % 360,
+    });
+    const annots = (await page.getAnnotations()) as Array<{
+      id?: string;
+      subtype?: string;
+      fieldName?: string;
+      fieldType?: string;
+      checkBox?: boolean;
+      radioButton?: boolean;
+      rect?: [number, number, number, number];
+      options?: Array<{ exportValue?: string; displayValue?: string } | string>;
+    }>;
+    const widgets: PageFormWidget[] = [];
+    for (let i = 0; i < annots.length; i++) {
+      const a = annots[i];
+      if (a.subtype !== 'Widget' || !a.fieldName || !a.rect) continue;
+      if (a.fieldType !== 'Tx' && a.fieldType !== 'Btn' && a.fieldType !== 'Ch') continue;
+      const vRect = viewport.convertToViewportRectangle(a.rect);
+      const minX = Math.min(vRect[0], vRect[2]);
+      const maxX = Math.max(vRect[0], vRect[2]);
+      const minY = Math.min(vRect[1], vRect[3]);
+      const maxY = Math.max(vRect[1], vRect[3]);
+      const wNorm = (maxX - minX) / Math.max(1, viewport.width);
+      const hNorm = (maxY - minY) / Math.max(1, viewport.height);
+      if (wNorm < 0.005 || hNorm < 0.005) continue;
+      const opts = a.options
+        ? a.options.map((o) => (typeof o === 'string' ? o : o.displayValue || o.exportValue || ''))
+        : undefined;
+      widgets.push({
+        id: a.id || `w_${pageIndex0}_${i}`,
+        fieldName: a.fieldName,
+        fieldType: a.fieldType,
+        isCheckBox: Boolean(a.checkBox),
+        xNorm: minX / Math.max(1, viewport.width),
+        yNorm: minY / Math.max(1, viewport.height),
+        wNorm,
+        hNorm,
+        options: opts,
+      });
+    }
+    return widgets;
+  } catch {
+    return [];
+  }
+}
+
 export async function buildPdfFromPages(
   sources: PdfSource[],
   pages: VirtualPage[],
   highlights: PdfHighlight[] = [],
   formValues: Record<string, string | boolean> = {},
-  signatures: PdfSignaturePlacement[] = []
+  signatures: PdfSignaturePlacement[] = [],
+  textAnnotations: PdfTextAnnotation[] = []
 ): Promise<Uint8Array> {
   const outDoc = await PDFDocument.create();
   const loadedSources = new Map<string, PDFDocument>();
@@ -213,6 +273,32 @@ export async function buildPdfFromPages(
         } catch {
           // ignore invalid signature image
         }
+      }
+    }
+
+    const pageTexts = textAnnotations.filter((t) => t.pageId === vPage.id && t.text.trim().length > 0);
+    if (pageTexts.length > 0) {
+      const { width, height } = copied.getSize();
+      const font = await outDoc.embedFont(StandardFonts.Helvetica);
+      for (const ta of pageTexts) {
+        const [r, g, b] = hexToRgbTuple(ta.color);
+        const lines = ta.text.split(/\r?\n/);
+        lines.forEach((rawLine, lineIdx) => {
+          // Strip characters outside WinAnsi if any so drawText never throws
+          const safeLine = rawLine.replace(/[^\x20-\x7E\xA0-\xFF]/g, '');
+          if (!safeLine) return;
+          try {
+            copied.drawText(safeLine, {
+              x: ta.xNorm * width,
+              y: Math.max(4, height - ta.yNorm * height - ta.fontSize * (lineIdx * 1.2 + 0.9)),
+              size: ta.fontSize,
+              font,
+              color: rgb(r / 255, g / 255, b / 255),
+            });
+          } catch {
+            // ignore unsupported glyph
+          }
+        });
       }
     }
 

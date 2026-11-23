@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Calendar,
   ChevronLeft,
   ChevronRight,
   ClipboardCopy,
@@ -16,16 +17,19 @@ import {
   Search,
   Sparkles,
   Trash2,
+  Type,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
 import type {
+  PageFormWidget,
   PdfFormFieldValue,
   PdfHighlight,
   PdfPart,
   PdfSignaturePlacement,
   PdfSource,
   PdfTab,
+  PdfTextAnnotation,
   VirtualPage,
 } from '../types';
 import { SignatureModal } from './SignatureModal';
@@ -37,6 +41,7 @@ import {
   getPdfJsDoc,
   loadPdfPageCount,
   pdfjsLib,
+  readPageFormWidgets,
   readPdfFormFields,
   readPdfOutline,
 } from '../utils/pdfOperations';
@@ -160,6 +165,127 @@ const PageCanvas: React.FC<PageCanvasProps> = React.memo(({
   );
 });
 
+interface PageFormOverlayProps {
+  source: PdfSource;
+  pageIndex0: number;
+  extraRotation: number;
+  formValues: Record<string, string | boolean>;
+  disabled: boolean;
+  onChangeField: (name: string, val: string | boolean) => void;
+}
+
+const PageFormOverlay: React.FC<PageFormOverlayProps> = React.memo(({
+  source,
+  pageIndex0,
+  extraRotation,
+  formValues,
+  disabled,
+  onChangeField,
+}) => {
+  const [widgets, setWidgets] = useState<PageFormWidget[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    readPageFormWidgets(source, pageIndex0, extraRotation).then((list) => {
+      if (!cancelled) setWidgets(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [source, pageIndex0, extraRotation]);
+
+  if (widgets.length === 0) return null;
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        pointerEvents: 'none',
+        zIndex: 2,
+      }}
+    >
+      {widgets.map((w) => {
+        const curVal = formValues[w.fieldName] ?? (w.isCheckBox ? false : '');
+        const baseStyle: React.CSSProperties = {
+          position: 'absolute',
+          left: `${w.xNorm * 100}%`,
+          top: `${w.yNorm * 100}%`,
+          width: `${w.wNorm * 100}%`,
+          height: `${w.hNorm * 100}%`,
+          pointerEvents: disabled ? 'none' : 'auto',
+          boxSizing: 'border-box',
+        };
+        if (w.isCheckBox || w.fieldType === 'Btn') {
+          return (
+            <input
+              key={w.id}
+              type="checkbox"
+              checked={Boolean(curVal)}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => onChangeField(w.fieldName, e.target.checked)}
+              title={w.fieldName}
+              style={{
+                ...baseStyle,
+                margin: 0,
+                cursor: 'pointer',
+                accentColor: '#1d4ed8',
+              }}
+            />
+          );
+        }
+        if (w.fieldType === 'Ch' && w.options && w.options.length > 0) {
+          return (
+            <select
+              key={w.id}
+              value={String(curVal)}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => onChangeField(w.fieldName, e.target.value)}
+              title={w.fieldName}
+              style={{
+                ...baseStyle,
+                background: 'rgba(59, 130, 246, 0.12)',
+                border: '1px solid rgba(59, 130, 246, 0.4)',
+                color: '#0f172a',
+                fontSize: 12,
+                padding: '0 3px',
+                borderRadius: 2,
+              }}
+            >
+              <option value="" />
+              {w.options.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
+          );
+        }
+        return (
+          <input
+            key={w.id}
+            type="text"
+            value={String(curVal)}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onChangeField(w.fieldName, e.target.value)}
+            title={`Formularfeld: ${w.fieldName}`}
+            style={{
+              ...baseStyle,
+              background: 'rgba(59, 130, 246, 0.1)',
+              border: '1px solid rgba(59, 130, 246, 0.35)',
+              color: '#0f172a',
+              fontSize: 12,
+              padding: '0 4px',
+              borderRadius: 2,
+              outline: 'none',
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+});
+
 export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   tab,
   onUpdateTab,
@@ -188,6 +314,20 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   const [highlightColor, setHighlightColor] = useState('#fde047');
   const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [pendingSignature, setPendingSignature] = useState<string | null>(null);
+  const [textMode, setTextMode] = useState(false);
+  const [textFontSize, setTextFontSize] = useState(13);
+  const [textColor, setTextColor] = useState('#0f172a');
+  const [pendingStampText, setPendingStampText] = useState<string | null>(null);
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [dragTextState, setDragTextState] = useState<{
+    id: string;
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+    shellW: number;
+    shellH: number;
+  } | null>(null);
   const [dragSigState, setDragSigState] = useState<{
     id: string;
     mode: 'move' | 'resize';
@@ -217,6 +357,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   const partMap = new Map(tab.parts.map((p) => [p.id, p]));
   const highlights = tab.highlights ?? [];
   const signatures = tab.signatures ?? [];
+  const textAnnotations = tab.textAnnotations ?? [];
   const formValues = tab.formValues ?? {};
 
   // Load outline & form fields for primary source
@@ -279,7 +420,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
       onToast('Bitte zuerst mindestens eine Seite auswählen.');
       return;
     }
-    const bytes = await buildPdfFromPages(tab.sources, picked, highlights, formValues, signatures);
+    const bytes = await buildPdfFromPages(tab.sources, picked, highlights, formValues, signatures, textAnnotations);
     const baseName = tab.title.replace(/\.pdf$/i, '');
     if (!isElectron()) {
       saveBytesBrowserFallback(`${baseName}_Auswahl.pdf`, bytes, 'application/pdf');
@@ -304,6 +445,13 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
         document.activeElement?.tagName === 'TEXTAREA' ||
         document.activeElement?.tagName === 'SELECT'
       ) {
+        return;
+      }
+      if (e.key === 'Escape') {
+        setTextMode(false);
+        setPendingStampText(null);
+        setPendingSignature(null);
+        setEditingTextId(null);
         return;
       }
       if (e.key === 'ArrowRight' || e.key === 'PageDown') {
@@ -454,7 +602,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   const handleSaveSinglePart = async (part: PdfPart) => {
     const partPages = tab.pages.filter((p) => p.partId === part.id);
     if (!partPages.length) return;
-    const bytes = await buildPdfFromPages(tab.sources, partPages, highlights, formValues, signatures);
+    const bytes = await buildPdfFromPages(tab.sources, partPages, highlights, formValues, signatures, textAnnotations);
     if (!isElectron()) {
       saveBytesBrowserFallback(`${part.name}.pdf`, bytes, 'application/pdf');
       onToast(`Part „${part.name}.pdf“ gespeichert.`);
@@ -481,7 +629,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
     for (const part of tab.parts) {
       const partPages = tab.pages.filter((p) => p.partId === part.id);
       if (!partPages.length) continue;
-      const bytes = await buildPdfFromPages(tab.sources, partPages, highlights, formValues, signatures);
+      const bytes = await buildPdfFromPages(tab.sources, partPages, highlights, formValues, signatures, textAnnotations);
       payload.push({ fileName: `${part.name}.pdf`, data: bytes });
     }
     if (!payload.length) return;
@@ -497,7 +645,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   };
 
   const handleSaveCombinedPdf = async () => {
-    const bytes = await buildPdfFromPages(tab.sources, tab.pages, highlights, formValues, signatures);
+    const bytes = await buildPdfFromPages(tab.sources, tab.pages, highlights, formValues, signatures, textAnnotations);
     const baseName = tab.title.replace(/\.pdf$/i, '');
     if (!isElectron()) {
       saveBytesBrowserFallback(`${baseName}_bearbeitet.pdf`, bytes, 'application/pdf');
@@ -515,7 +663,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   };
 
   const handleUploadCombinedToPc = async () => {
-    const bytes = await buildPdfFromPages(tab.sources, tab.pages, highlights, formValues, signatures);
+    const bytes = await buildPdfFromPages(tab.sources, tab.pages, highlights, formValues, signatures, textAnnotations);
     const baseName = tab.title.replace(/\.pdf$/i, '');
     const res = await uploadToPc(`${baseName}_handy.pdf`, bytes);
     if (res.ok) {
@@ -576,6 +724,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
     if (!src) return null;
     const pageHighlights = highlights.filter((h) => h.pageId === vp.id);
     const pageSignatures = signatures.filter((s) => s.pageId === vp.id);
+    const pageTexts = textAnnotations.filter((t) => t.pageId === vp.id);
 
     const isSelected = selectedPageIds.has(vp.id);
     return (
@@ -616,6 +765,49 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
             img.src = sigData;
             return;
           }
+          if (pendingStampText) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const clickX = Math.max(0.01, Math.min(0.88, (e.clientX - rect.left) / rect.width));
+            const clickY = Math.max(0.01, Math.min(0.95, (e.clientY - rect.top) / rect.height - 0.01));
+            const newId = `txt_${Date.now()}`;
+            const stamp: PdfTextAnnotation = {
+              id: newId,
+              pageId: vp.id,
+              text: pendingStampText,
+              xNorm: clickX,
+              yNorm: clickY,
+              fontSize: textFontSize,
+              color: textColor,
+            };
+            setPendingStampText(null);
+            onUpdateTab((prev) => ({
+              ...prev,
+              textAnnotations: [...(prev.textAnnotations ?? []), stamp],
+            }));
+            onToast('Datum platziert! Ziehen zum Verschieben, Anklicken zum Bearbeiten.');
+            return;
+          }
+          if (textMode) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const clickX = Math.max(0.01, Math.min(0.88, (e.clientX - rect.left) / rect.width));
+            const clickY = Math.max(0.01, Math.min(0.95, (e.clientY - rect.top) / rect.height - 0.01));
+            const newId = `txt_${Date.now()}`;
+            const item: PdfTextAnnotation = {
+              id: newId,
+              pageId: vp.id,
+              text: '',
+              xNorm: clickX,
+              yNorm: clickY,
+              fontSize: textFontSize,
+              color: textColor,
+            };
+            onUpdateTab((prev) => ({
+              ...prev,
+              textAnnotations: [...(prev.textAnnotations ?? []), item],
+            }));
+            setEditingTextId(newId);
+            return;
+          }
           if (selectMode) {
             toggleSelectPage(vp.id);
           } else if (!highlightMode && idx !== tab.activePageIndex) {
@@ -628,7 +820,10 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
             : isActiveHighlight
               ? '2px solid var(--accent)'
               : 'none',
-          cursor: pendingSignature || highlightMode || selectMode ? 'crosshair' : 'auto',
+          cursor:
+            pendingSignature || pendingStampText || textMode || highlightMode || selectMode
+              ? 'crosshair'
+              : 'auto',
         }}
         onMouseDown={(e) => {
           if (!highlightMode) return;
@@ -676,6 +871,23 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
           enableTextLayer={!highlightMode}
         />
 
+        {/* Direct interactive AcroForm fields on the PDF page */}
+        <PageFormOverlay
+          source={src}
+          pageIndex0={vp.sourcePageIndex}
+          extraRotation={vp.rotation}
+          formValues={formValues}
+          disabled={Boolean(
+            highlightMode || selectMode || textMode || pendingSignature || pendingStampText
+          )}
+          onChangeField={(name, val) =>
+            onUpdateTab((prev) => ({
+              ...prev,
+              formValues: { ...(prev.formValues ?? {}), [name]: val },
+            }))
+          }
+        />
+
         {/* Existing Highlights */}
         {pageHighlights.map((hl) => (
           <div
@@ -700,6 +912,143 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
               cursor: 'pointer',
             }}
           />
+        ))}
+
+        {/* Placed Text Boxes & Date Stamps */}
+        {pageTexts.map((ta) => (
+          <div
+            key={ta.id}
+            style={{
+              position: 'absolute',
+              left: `${ta.xNorm * 100}%`,
+              top: `${ta.yNorm * 100}%`,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 2,
+              border: '1px dashed rgba(59, 130, 246, 0.75)',
+              background: 'rgba(255, 255, 255, 0.65)',
+              borderRadius: 3,
+              padding: '1px 4px 1px 2px',
+              zIndex: 4,
+              touchAction: 'none',
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onPointerMove={(e) => {
+              if (!dragTextState || dragTextState.id !== ta.id) return;
+              const dx = (e.clientX - dragTextState.startX) / dragTextState.shellW;
+              const dy = (e.clientY - dragTextState.startY) / dragTextState.shellH;
+              onUpdateTab((prev) => ({
+                ...prev,
+                textAnnotations: (prev.textAnnotations ?? []).map((item) =>
+                  item.id === ta.id
+                    ? {
+                        ...item,
+                        xNorm: Math.min(0.95, Math.max(0, dragTextState.origX + dx)),
+                        yNorm: Math.min(0.97, Math.max(0, dragTextState.origY + dy)),
+                      }
+                    : item
+                ),
+              }));
+            }}
+            onPointerUp={() => setDragTextState(null)}
+          >
+            <span
+              title="Ziehen zum Verschieben"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                const shell = e.currentTarget.parentElement?.parentElement;
+                if (!shell) return;
+                const r = shell.getBoundingClientRect();
+                e.currentTarget.parentElement?.setPointerCapture(e.pointerId);
+                setDragTextState({
+                  id: ta.id,
+                  startX: e.clientX,
+                  startY: e.clientY,
+                  origX: ta.xNorm,
+                  origY: ta.yNorm,
+                  shellW: r.width,
+                  shellH: r.height,
+                });
+              }}
+              style={{
+                cursor: 'move',
+                color: '#3b82f6',
+                fontSize: 12,
+                userSelect: 'none',
+                padding: '0 2px',
+              }}
+            >
+              ⠿
+            </span>
+            <input
+              type="text"
+              autoFocus={editingTextId === ta.id}
+              value={ta.text}
+              placeholder="Text tippen..."
+              size={Math.max(8, ta.text.length + 2)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingTextId(ta.id);
+              }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                const val = e.target.value;
+                onUpdateTab((prev) => ({
+                  ...prev,
+                  textAnnotations: (prev.textAnnotations ?? []).map((item) =>
+                    item.id === ta.id ? { ...item, text: val } : item
+                  ),
+                }));
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === 'Escape') {
+                  (e.target as HTMLInputElement).blur();
+                  setEditingTextId(null);
+                }
+              }}
+              style={{
+                border: 'none',
+                outline: 'none',
+                background: 'transparent',
+                color: ta.color,
+                fontSize: `${Math.max(9, ta.fontSize * zoom)}px`,
+                fontFamily: 'Helvetica, Arial, sans-serif',
+                lineHeight: 1.15,
+                padding: 0,
+                minWidth: 48,
+              }}
+            />
+            <button
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdateTab((prev) => ({
+                  ...prev,
+                  textAnnotations: (prev.textAnnotations ?? []).filter((item) => item.id !== ta.id),
+                }));
+              }}
+              title="Textfeld entfernen"
+              style={{
+                position: 'absolute',
+                top: -9,
+                right: -9,
+                width: 18,
+                height: 18,
+                borderRadius: '50%',
+                border: 'none',
+                background: '#ef4444',
+                color: '#fff',
+                fontSize: 10,
+                lineHeight: '18px',
+                textAlign: 'center',
+                padding: 0,
+                cursor: 'pointer',
+              }}
+            >
+              ✕
+            </button>
+          </div>
         ))}
 
         {/* Existing Signatures */}
@@ -991,6 +1340,71 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
             title="Aktuelle Seite um 90° drehen"
           >
             <RotateCw size={15} /> Drehen
+          </button>
+          <button
+            className={`btn ${textMode ? 'active' : ''}`}
+            onClick={() => {
+              const next = !textMode;
+              setTextMode(next);
+              if (next) {
+                setHighlightMode(false);
+                setPendingSignature(null);
+                setPendingStampText(null);
+                onToast('Text-Werkzeug aktiv: Auf beliebige Stelle der PDF klicken und schreiben.');
+              }
+            }}
+            title="Textfeld an beliebiger Stelle auf der PDF einfügen und beschreiben"
+          >
+            <Type size={15} /> Text
+          </button>
+          {textMode && (
+            <>
+              <select
+                className="input-compact"
+                value={textFontSize}
+                onChange={(e) => setTextFontSize(Number(e.target.value))}
+                title="Schriftgröße"
+              >
+                <option value={10}>10 pt</option>
+                <option value={12}>12 pt</option>
+                <option value={13}>13 pt</option>
+                <option value={15}>15 pt</option>
+                <option value={18}>18 pt</option>
+                <option value={22}>22 pt</option>
+              </select>
+              <select
+                className="input-compact"
+                value={textColor}
+                onChange={(e) => setTextColor(e.target.value)}
+                title="Textfarbe"
+              >
+                <option value="#0f172a">Schwarz</option>
+                <option value="#1e3a8a">Dunkelblau</option>
+                <option value="#dc2626">Rot</option>
+              </select>
+            </>
+          )}
+          <button
+            className={`btn ${pendingStampText ? 'btn-primary' : ''}`}
+            onClick={() => {
+              if (pendingStampText) {
+                setPendingStampText(null);
+              } else {
+                const today = new Date().toLocaleDateString('de-DE', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                });
+                setTextMode(false);
+                setHighlightMode(false);
+                setPendingSignature(null);
+                setPendingStampText(today);
+                onToast(`Datum-Stempel (${today}) bereit: Klicke auf die gewünschte Stelle.`);
+              }
+            }}
+            title="Heutiges Datum als Stempel mit 1 Klick auf die PDF setzen"
+          >
+            <Calendar size={15} /> {pendingStampText ? `Stempel: ${pendingStampText}` : 'Datum'}
           </button>
           <button
             className={`btn ${pendingSignature ? 'btn-primary' : ''}`}
