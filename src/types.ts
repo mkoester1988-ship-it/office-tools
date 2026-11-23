@@ -13,6 +13,10 @@ export interface ElectronAPI {
     filters?: { name: string; extensions: string[] }[];
     data: Uint8Array;
   }) => Promise<{ canceled: boolean; filePath?: string }>;
+  writeDirect: (options: {
+    filePath: string;
+    data: Uint8Array;
+  }) => Promise<{ ok: boolean; filePath?: string; error?: string }>;
   savePartsBatch: (
     parts: { fileName: string; data: Uint8Array }[]
   ) => Promise<{ canceled: boolean; targetDir?: string; savedPaths: string[] }>;
@@ -65,6 +69,7 @@ declare global {
 export interface PdfSource {
   id: string;
   name: string;
+  filePath?: string;
   bytes: Uint8Array;
 }
 
@@ -169,6 +174,7 @@ export interface AppSettings {
   bringToFrontOnCapture: boolean;
   screenshotShortcut: string;
   videoShortcut: string;
+  invertScrollZones?: boolean;
 }
 
 export interface SyncStatus {

@@ -167,7 +167,7 @@ export const App: React.FC = () => {
               id: `tab_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
               kind: 'pdf',
               title: payload.name,
-              sources: [{ id: sourceId, name: payload.name, bytes: payload.data }],
+              sources: [{ id: sourceId, name: payload.name, filePath: payload.path, bytes: payload.data }],
               pages,
               parts: [part],
               activePageIndex: 0,

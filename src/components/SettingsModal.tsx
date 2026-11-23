@@ -36,6 +36,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onToast }
   const savePatch = async (patch: Partial<AppSettings>) => {
     const res = await window.electronAPI.updateSettings(patch);
     setSettings(res.settings);
+    if (typeof patch.invertScrollZones === 'boolean') {
+      localStorage.setItem('pdfreader_invert_scroll_zones', String(patch.invertScrollZones));
+      window.dispatchEvent(
+        new CustomEvent('pdfreader:settings-changed', {
+          detail: { invertScrollZones: patch.invertScrollZones },
+        })
+      );
+    }
     if (res.shortcutError) {
       onToast(res.shortcutError);
     } else {
@@ -134,6 +142,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onToast }
                     onChange={(e) => savePatch({ bringToFrontOnCapture: e.target.checked })}
                   />
                   Fenster bei neuem Screenshot in den Vordergrund holen (aus = bleibt im Hintergrund)
+                </label>
+              </div>
+
+              <div
+                style={{
+                  background: 'var(--bg-elevated)',
+                  padding: 12,
+                  borderRadius: 10,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+              >
+                <strong style={{ fontSize: 13 }}>PDF-Scroll-Verhalten (Mausrad)</strong>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="scrollZones"
+                    checked={!settings.invertScrollZones}
+                    onChange={() => savePatch({ invertScrollZones: false })}
+                  />
+                  Standard: Links (Kleinseiten) schnell Blatt-für-Blatt · Rechts (Blatt) fein/langsam scrollen
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="scrollZones"
+                    checked={Boolean(settings.invertScrollZones)}
+                    onChange={() => savePatch({ invertScrollZones: true })}
+                  />
+                  Umgekehrt: Links (Kleinseiten) normal scrollen · Rechts (Blatt) schnell Blatt-für-Blatt
                 </label>
               </div>
 

@@ -9,9 +9,12 @@ Stand: 2026-11-23 · Kürzel: `PDF` · Phase: `live` · Sensibilität: 🟢
 - **Kosten & Break-Even:** 0 € laufende Kosten (100 % lokal, keine Cloud/API).
 - **Risiken & Leitplanken:** `C:\Program Files\Adobe\Acrobat DC\` wird nur read-only analysiert; keine proprietären Assets oder Icons übernommen.
 
-## Aktueller Stand (v1.7.0, 2026-11-23)
+## Aktueller Stand (v1.8.0, 2026-11-23)
 
-- **App gebaut & verifiziert:** `npm run build`, Android-APK (`versionCode 12`, `versionName "1.7.0"`) + `electron-builder` (`PDF-Reader Studio Setup 1.7.0.exe`) fehlerfrei, GitHub-Repo `mkoester1988-ship-it/office-tools` + GitHub Releases (`v1.2.7` bis `v1.7.0`) live.
+- **App gebaut & verifiziert:** `npm run build`, Android-APK (`versionCode 13`, `versionName "1.8.0"`) + `electron-builder` (`PDF-Reader Studio Setup 1.8.0.exe`) fehlerfrei, GitHub-Repo `mkoester1988-ship-it/office-tools` + GitHub Releases (`v1.2.7` bis `v1.8.0`) live.
+- **Neu in `v1.8.0` (Direkt-Speichern & zwei Scroll-Zonen):**
+  - **Direkt überschreiben (`Speichern` / `Strg+S`) + `Speichern unter...`:** Geöffnete PDFs lassen sich über `file:writeDirect` direkt am Originalpfad überschreiben oder weiterhin als neue Datei speichern.
+  - **Zwei Scroll-Zonen (in Einstellungen umkehrbar):** Standardmäßig schaltet das Mausrad über den Kleinseiten links schnell Blatt-für-Blatt weiter und scrollt direkt auf dem PDF-Blatt sanft/langsam; über `Einstellungen → PDF-Scroll-Verhalten` (`invertScrollZones`) lässt sich das Verhalten sofort ohne Neustart umkehren.
 - **Neu in `v1.7.0` (Text-Werkzeug, Datum-Stempel & Direkt-Formularfelder):**
   - **`T Text`-Werkzeug:** Beliebige Textfelder direkt per Klick auf PDF-Seiten setzen und beschreiben (Schriftgröße `10–22 pt`, Farbe Schwarz/Dunkelblau/Rot, frei verschiebbar über `⠿`, löschbar mit `✕`, sauberer Export über `pdf-lib` `StandardFonts.Helvetica`).
   - **`📅 Datum`-Stempel:** 1-Klick-Button für das heutige Datum (`TT.MM.JJJJ`) zum direkten Platzieren wie ein Stempel auf jeder PDF-Seite.

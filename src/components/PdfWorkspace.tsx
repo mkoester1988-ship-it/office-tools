@@ -302,6 +302,11 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   const [selectMode, setSelectMode] = useState(false);
   const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set());
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const thumbRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const lastWheelPageSwitchRef = useRef<number>(0);
+  const [invertScrollZones, setInvertScrollZones] = useState<boolean>(
+    () => localStorage.getItem('pdfreader_invert_scroll_zones') === 'true'
+  );
   const [sidebarTab, setSidebarTab] = useState<'pages' | 'parts' | 'outline' | 'form'>('pages');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchMatches, setSearchMatches] = useState<number[]>([]);
@@ -379,6 +384,29 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
       .catch(() => setFormFields([]));
   }, [tab.sources]);
 
+  // Sync scroll-zone preference from Electron settings & live settings modal changes
+  useEffect(() => {
+    if (isElectron()) {
+      window.electronAPI
+        .getSettings()
+        .then((s) => {
+          if (typeof s.invertScrollZones === 'boolean') {
+            setInvertScrollZones(s.invertScrollZones);
+            localStorage.setItem('pdfreader_invert_scroll_zones', String(s.invertScrollZones));
+          }
+        })
+        .catch(() => {});
+    }
+    const onSettingsChanged = (e: Event) => {
+      const detail = (e as CustomEvent<{ invertScrollZones?: boolean }>).detail;
+      if (typeof detail?.invertScrollZones === 'boolean') {
+        setInvertScrollZones(detail.invertScrollZones);
+      }
+    };
+    window.addEventListener('pdfreader:settings-changed', onSettingsChanged);
+    return () => window.removeEventListener('pdfreader:settings-changed', onSettingsChanged);
+  }, []);
+
   const goToPage = (index0: number) => {
     const clamped = Math.max(0, Math.min(tab.pages.length - 1, index0));
     onUpdateTab((prev) => ({ ...prev, activePageIndex: clamped }));
@@ -386,6 +414,36 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
       const el = pageRefs.current.get(clamped);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
+    const thumbEl = thumbRefs.current.get(clamped);
+    if (thumbEl) thumbEl.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+  };
+
+  const handleFastPageWheel = (e: React.WheelEvent) => {
+    if (e.ctrlKey || Math.abs(e.deltaY) < 4) return;
+    e.preventDefault();
+    const now = performance.now();
+    if (now - lastWheelPageSwitchRef.current < 75) return;
+    lastWheelPageSwitchRef.current = now;
+    const dir = e.deltaY > 0 ? 1 : -1;
+    const nextIdx = Math.max(0, Math.min(tab.pages.length - 1, tab.activePageIndex + dir));
+    if (nextIdx !== tab.activePageIndex) {
+      goToPage(nextIdx);
+    }
+  };
+
+  const handleSlowSheetWheel = (e: React.WheelEvent<HTMLElement>) => {
+    if (e.ctrlKey || !viewportRef.current) return;
+    if (invertScrollZones) {
+      handleFastPageWheel(e);
+      return;
+    }
+    if (viewMode !== 'scroll') {
+      handleFastPageWheel(e);
+      return;
+    }
+    // Gentle, controlled scrolling directly on the PDF sheet
+    e.preventDefault();
+    viewportRef.current.scrollTop += e.deltaY * 0.52;
   };
 
   const handleViewportScroll = () => {
@@ -445,6 +503,11 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
         document.activeElement?.tagName === 'TEXTAREA' ||
         document.activeElement?.tagName === 'SELECT'
       ) {
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleOverwritePdf();
         return;
       }
       if (e.key === 'Escape') {
@@ -641,6 +704,28 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
     const res = await window.electronAPI.savePartsBatch(payload);
     if (!res.canceled) {
       onToast(`${res.savedPaths.length} PDF-Parts erfolgreich im Ordner gespeichert.`);
+    }
+  };
+
+  const handleOverwritePdf = async () => {
+    const originalPath = tab.sources[0]?.filePath;
+    if (!isElectron() || !originalPath) {
+      await handleSaveCombinedPdf();
+      return;
+    }
+    const bytes = await buildPdfFromPages(
+      tab.sources,
+      tab.pages,
+      highlights,
+      formValues,
+      signatures,
+      textAnnotations
+    );
+    const res = await window.electronAPI.writeDirect({ filePath: originalPath, data: bytes });
+    if (res.ok) {
+      onToast(`„${tab.title}“ direkt überschrieben!`);
+    } else {
+      onToast(`Überschreiben fehlgeschlagen: ${res.error ?? 'Unbekannter Fehler'}`);
     }
   };
 
@@ -1495,12 +1580,21 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
         </div>
 
         <div className="toolbar-group">
+          {isElectron() && tab.sources[0]?.filePath && (
+            <button
+              className="btn btn-primary"
+              onClick={handleOverwritePdf}
+              title={`Alte PDF direkt überschreiben (${tab.sources[0].filePath}) · Strg+S`}
+            >
+              <Save size={15} /> Speichern
+            </button>
+          )}
           <button
             className="btn"
             onClick={handleSaveCombinedPdf}
-            title="Ohne Trennung als eine Gesamt-PDF speichern (Original bleibt erhalten)"
+            title="Als neue PDF-Datei speichern (Original bleibt unverändert)"
           >
-            <Save size={15} /> Ohne Trennung speichern
+            <Save size={15} /> {isElectron() && tab.sources[0]?.filePath ? 'Speichern unter...' : 'Ohne Trennung speichern'}
           </button>
           {!isElectron() && (
             <button
@@ -1556,7 +1650,12 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
           </div>
 
           {sidebarTab === 'pages' && (
-            <div className="thumbnail-list">
+            <div
+              className="thumbnail-list"
+              onWheel={(e) => {
+                if (!invertScrollZones) handleFastPageWheel(e);
+              }}
+            >
               {tab.pages.map((vp, idx) => {
                 const src = tab.sources.find((s) => s.id === vp.sourceId);
                 if (!src) return null;
@@ -1567,6 +1666,10 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
                 return (
                   <React.Fragment key={vp.id}>
                     <div
+                      ref={(el) => {
+                        if (el) thumbRefs.current.set(idx, el);
+                        else thumbRefs.current.delete(idx);
+                      }}
                       className={`thumb-card ${idx === tab.activePageIndex ? 'active' : ''}`}
                       onClick={() => goToPage(idx)}
                     >
@@ -1797,7 +1900,12 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
         )}
 
         {/* Main Viewport */}
-        <main className="main-viewport" ref={viewportRef} onScroll={handleViewportScroll}>
+        <main
+          className="main-viewport"
+          ref={viewportRef}
+          onScroll={handleViewportScroll}
+          onWheel={handleSlowSheetWheel}
+        >
           {viewMode === 'single' && activePage && renderPageShell(activePage, tab.activePageIndex, false)}
 
           {viewMode === 'scroll' &&

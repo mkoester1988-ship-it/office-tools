@@ -51,6 +51,7 @@ interface AppSettings {
   bringToFrontOnCapture: boolean;
   screenshotShortcut: string;
   videoShortcut: string;
+  invertScrollZones: boolean;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -60,6 +61,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   bringToFrontOnCapture: true,
   screenshotShortcut: 'CommandOrControl+Alt+S',
   videoShortcut: 'CommandOrControl+Alt+R',
+  invertScrollZones: false,
 };
 
 let appSettings: AppSettings = { ...DEFAULT_SETTINGS };
@@ -643,6 +645,21 @@ ipcMain.handle('file:readBinary', async (_event, filePath: string) => {
     data: new Uint8Array(buf),
   };
 });
+
+ipcMain.handle(
+  'file:writeDirect',
+  async (_event, options: { filePath: string; data: Uint8Array }) => {
+    try {
+      await fs.writeFile(options.filePath, Buffer.from(options.data));
+      return { ok: true, filePath: options.filePath };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : 'Fehler beim Überschreiben der Datei.',
+      };
+    }
+  }
+);
 
 ipcMain.handle(
   'file:saveBinary',
