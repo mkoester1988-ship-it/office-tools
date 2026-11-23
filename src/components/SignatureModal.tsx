@@ -64,7 +64,7 @@ function trimTransparentCanvas(src: HTMLCanvasElement): string {
 
 function processUploadedSignature(
   img: HTMLImageElement,
-  threshold: number,
+  strengthPct: number,
   inkColor: 'original' | '#0f172a' | '#1e3a8a' | '#1d4ed8'
 ): string {
   const maxDim = 900;
@@ -77,23 +77,28 @@ function processUploadedSignature(
   canvas.height = h;
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
+
+  // Composite onto pure white first so semi-transparent gray paper (e.g. re-edited signatures)
+  // reveals its true visual brightness on white paper instead of dark RGB with low alpha.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
   ctx.drawImage(img, 0, 0, w, h);
+
+  if (strengthPct <= 0) {
+    return canvas.toDataURL('image/png');
+  }
 
   const imgData = ctx.getImageData(0, 0, w, h);
   const d = imgData.data;
 
-  // 1. Luminance array
+  // 1. Visual luminance array on white
   const lumArr = new Float32Array(w * h);
   for (let p = 0; p < w * h; p++) {
     const idx = p * 4;
-    if (d[idx + 3] < 10) {
-      lumArr[p] = -1;
-    } else {
-      lumArr[p] = 0.299 * d[idx] + 0.587 * d[idx + 1] + 0.114 * d[idx + 2];
-    }
+    lumArr[p] = 0.299 * d[idx] + 0.587 * d[idx + 1] + 0.114 * d[idx + 2];
   }
 
-  // 2. Adaptive local paper-background estimation (handles gray paper & uneven shadows!)
+  // 2. Adaptive local paper-background estimation (handles gray paper & uneven shadows)
   const blockSize = Math.max(16, Math.round(Math.min(w, h) / 14));
   const gw = Math.max(1, Math.ceil(w / blockSize));
   const gh = Math.max(1, Math.ceil(h / blockSize));
@@ -106,23 +111,16 @@ function processUploadedSignature(
       const x0 = gx * blockSize;
       const x1 = Math.min(w, x0 + blockSize);
       const samples: number[] = [];
-      let totalSampled = 0;
       for (let y = y0; y < y1; y += 2) {
         const row = y * w;
         for (let x = x0; x < x1; x += 2) {
-          totalSampled++;
-          const v = lumArr[row + x];
-          if (v >= 0) samples.push(v);
+          samples.push(lumArr[row + x]);
         }
       }
-      if (samples.length < Math.max(4, totalSampled * 0.35)) {
-        grid[gy * gw + gx] = 255;
-      } else {
-        samples.sort((a, b) => a - b);
-        // 85th percentile reliably tracks local paper brightness even across dark strokes
-        const p85 = samples[Math.min(samples.length - 1, Math.floor(samples.length * 0.85))];
-        grid[gy * gw + gx] = Math.max(95, p85);
-      }
+      samples.sort((a, b) => a - b);
+      // 85th percentile reliably tracks local paper brightness even across dark strokes
+      const p85 = samples[Math.min(samples.length - 1, Math.floor(samples.length * 0.85))];
+      grid[gy * gw + gx] = Math.max(95, p85);
     }
   }
 
@@ -163,10 +161,9 @@ function processUploadedSignature(
   }
 
   // 3. Flat-field normalize each pixel against its local paper background and remove paper cleanly
-  // Higher `threshold` slider (100..245) = removes more background; map inversely to normLum cutoff
-  // Slider 100 -> cutoff 240 (gentle), Slider 195 (default) -> cutoff 205 (removes shadows & gray paper), Slider 245 -> cutoff 150 (very aggressive)
-  const cutoff = Math.max(120, Math.min(248, 250 - (threshold - 100) * 0.68));
-  const softBand = 36;
+  // strengthPct 1..100 -> cutoff 251 (gentle) down to 137 (very strong)
+  const cutoff = Math.max(120, Math.min(252, 252 - strengthPct * 1.15));
+  const softBand = 32;
 
   for (let y = 0; y < h; y++) {
     const fy = (y + 0.5) / blockSize - 0.5;
@@ -177,11 +174,6 @@ function processUploadedSignature(
     for (let x = 0; x < w; x++) {
       const p = y * w + x;
       const idx = p * 4;
-      const a = d[idx + 3];
-      if (a < 10) {
-        d[idx + 3] = 0;
-        continue;
-      }
 
       const fx = (x + 0.5) / blockSize - 0.5;
       const gx0 = Math.max(0, Math.min(gw - 1, Math.floor(fx)));
@@ -207,7 +199,7 @@ function processUploadedSignature(
         const strength = Math.min(1, (cutoff - normLum) / softBand);
         // Smoothstep curve for crisp anti-aliased ink edges without gray halo
         const smooth = strength * strength * (3 - 2 * strength);
-        d[idx + 3] = Math.round(a * smooth);
+        d[idx + 3] = Math.round(255 * smooth);
         if (inkColor !== 'original') {
           d[idx] = targetR;
           d[idx + 1] = targetG;
@@ -233,7 +225,7 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
   const drawCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [rawImg, setRawImg] = useState<HTMLImageElement | null>(null);
-  const [threshold, setThreshold] = useState(195);
+  const [threshold, setThreshold] = useState(55);
   const [inkColor, setInkColor] = useState<'original' | '#0f172a' | '#1e3a8a' | '#1d4ed8'>('#0f172a');
   const [processedPreview, setProcessedPreview] = useState<string>('');
   const [sigName, setSigName] = useState('Meine Unterschrift');
@@ -528,12 +520,12 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
                       <span>Papier-Hintergrund entfernen (Stärke):</span>
-                      <strong>{Math.round(((threshold - 100) / 145) * 100)} %</strong>
+                      <strong>{threshold} %</strong>
                     </div>
                     <input
                       type="range"
-                      min={100}
-                      max={245}
+                      min={0}
+                      max={100}
                       value={threshold}
                       onChange={(e) => setThreshold(Number(e.target.value))}
                     />

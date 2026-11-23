@@ -63,7 +63,7 @@ interface PageCanvasProps {
   className?: string;
 }
 
-const PageCanvas: React.FC<PageCanvasProps> = ({
+const PageCanvas: React.FC<PageCanvasProps> = React.memo(({
   source,
   pageIndex0,
   scale,
@@ -158,7 +158,7 @@ const PageCanvas: React.FC<PageCanvasProps> = ({
       {enableTextLayer && <div ref={textLayerRef} className="pdf-text-layer" />}
     </div>
   );
-};
+});
 
 export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   tab,
@@ -208,6 +208,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
     y2: number;
   } | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const savedScrollTopRef = useRef<number | null>(null);
 
   const activePage = tab.pages[tab.activePageIndex] ?? tab.pages[0];
   const activeSource = activePage
@@ -298,6 +299,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (
+        showSignatureModal ||
         document.activeElement?.tagName === 'INPUT' ||
         document.activeElement?.tagName === 'TEXTAREA' ||
         document.activeElement?.tagName === 'SELECT'
@@ -320,7 +322,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [tab.activePageIndex, tab.pages.length]);
+  }, [tab.activePageIndex, tab.pages.length, showSignatureModal]);
 
   const handleSplitAfterPage = (pageIdx0: number) => {
     if (pageIdx0 >= tab.pages.length - 1) return;
@@ -616,8 +618,8 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
           }
           if (selectMode) {
             toggleSelectPage(vp.id);
-          } else if (!highlightMode) {
-            goToPage(idx);
+          } else if (!highlightMode && idx !== tab.activePageIndex) {
+            onUpdateTab((prev) => ({ ...prev, activePageIndex: idx }));
           }
         }}
         style={{
@@ -986,6 +988,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
               if (pendingSignature) {
                 setPendingSignature(null);
               } else {
+                savedScrollTopRef.current = viewportRef.current?.scrollTop ?? null;
                 setShowSignatureModal(true);
               }
             }}
@@ -1474,10 +1477,24 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
 
       {showSignatureModal && (
         <SignatureModal
-          onClose={() => setShowSignatureModal(false)}
+          onClose={() => {
+            setShowSignatureModal(false);
+            const restoreY = savedScrollTopRef.current;
+            if (restoreY !== null) {
+              requestAnimationFrame(() => {
+                if (viewportRef.current) viewportRef.current.scrollTop = restoreY;
+              });
+            }
+          }}
           onSelectForPlacement={(dataUrl) => {
             setShowSignatureModal(false);
             setPendingSignature(dataUrl);
+            const restoreY = savedScrollTopRef.current;
+            if (restoreY !== null) {
+              requestAnimationFrame(() => {
+                if (viewportRef.current) viewportRef.current.scrollTop = restoreY;
+              });
+            }
             onToast('Klicke jetzt auf die gewünschte Stelle auf der PDF-Seite.');
           }}
           onToast={onToast}
