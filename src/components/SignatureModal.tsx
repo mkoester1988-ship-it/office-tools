@@ -82,6 +82,73 @@ function processUploadedSignature(
   const imgData = ctx.getImageData(0, 0, w, h);
   const d = imgData.data;
 
+  // 1. Luminance array
+  const lumArr = new Float32Array(w * h);
+  for (let p = 0; p < w * h; p++) {
+    const idx = p * 4;
+    if (d[idx + 3] < 10) {
+      lumArr[p] = -1;
+    } else {
+      lumArr[p] = 0.299 * d[idx] + 0.587 * d[idx + 1] + 0.114 * d[idx + 2];
+    }
+  }
+
+  // 2. Adaptive local paper-background estimation (handles gray paper & uneven shadows!)
+  const blockSize = Math.max(16, Math.round(Math.min(w, h) / 14));
+  const gw = Math.max(1, Math.ceil(w / blockSize));
+  const gh = Math.max(1, Math.ceil(h / blockSize));
+  let grid = new Float32Array(gw * gh);
+
+  for (let gy = 0; gy < gh; gy++) {
+    const y0 = gy * blockSize;
+    const y1 = Math.min(h, y0 + blockSize);
+    for (let gx = 0; gx < gw; gx++) {
+      const x0 = gx * blockSize;
+      const x1 = Math.min(w, x0 + blockSize);
+      const samples: number[] = [];
+      let totalSampled = 0;
+      for (let y = y0; y < y1; y += 2) {
+        const row = y * w;
+        for (let x = x0; x < x1; x += 2) {
+          totalSampled++;
+          const v = lumArr[row + x];
+          if (v >= 0) samples.push(v);
+        }
+      }
+      if (samples.length < Math.max(4, totalSampled * 0.35)) {
+        grid[gy * gw + gx] = 255;
+      } else {
+        samples.sort((a, b) => a - b);
+        // 85th percentile reliably tracks local paper brightness even across dark strokes
+        const p85 = samples[Math.min(samples.length - 1, Math.floor(samples.length * 0.85))];
+        grid[gy * gw + gx] = Math.max(95, p85);
+      }
+    }
+  }
+
+  // Smooth the background grid (2 passes of 3x3 box blur) so shadows transition cleanly
+  for (let pass = 0; pass < 2; pass++) {
+    const nextGrid = new Float32Array(gw * gh);
+    for (let gy = 0; gy < gh; gy++) {
+      for (let gx = 0; gx < gw; gx++) {
+        let sum = 0;
+        let cnt = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const ny = gy + dy;
+          if (ny < 0 || ny >= gh) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = gx + dx;
+            if (nx < 0 || nx >= gw) continue;
+            sum += grid[ny * gw + nx];
+            cnt++;
+          }
+        }
+        nextGrid[gy * gw + gx] = sum / Math.max(1, cnt);
+      }
+    }
+    grid = nextGrid;
+  }
+
   let targetR = 15,
     targetG = 23,
     targetB = 42;
@@ -95,24 +162,57 @@ function processUploadedSignature(
     targetB = 216;
   }
 
-  for (let i = 0; i < d.length; i += 4) {
-    const a = d[i + 3];
-    if (a < 10) continue;
-    const r = d[i];
-    const g = d[i + 1];
-    const b = d[i + 2];
-    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+  // 3. Flat-field normalize each pixel against its local paper background and remove paper cleanly
+  // Higher `threshold` slider (100..245) = removes more background; map inversely to normLum cutoff
+  // Slider 100 -> cutoff 240 (gentle), Slider 195 (default) -> cutoff 205 (removes shadows & gray paper), Slider 245 -> cutoff 150 (very aggressive)
+  const cutoff = Math.max(120, Math.min(248, 250 - (threshold - 100) * 0.68));
+  const softBand = 36;
 
-    if (lum >= threshold) {
-      d[i + 3] = 0;
-    } else {
-      // Smooth anti-aliased alpha near threshold
-      const strength = Math.min(1, (threshold - lum) / Math.max(25, threshold * 0.35));
-      d[i + 3] = Math.round(a * strength);
-      if (inkColor !== 'original') {
-        d[i] = targetR;
-        d[i + 1] = targetG;
-        d[i + 2] = targetB;
+  for (let y = 0; y < h; y++) {
+    const fy = (y + 0.5) / blockSize - 0.5;
+    const gy0 = Math.max(0, Math.min(gh - 1, Math.floor(fy)));
+    const gy1 = Math.max(0, Math.min(gh - 1, gy0 + 1));
+    const ty = Math.max(0, Math.min(1, fy - gy0));
+
+    for (let x = 0; x < w; x++) {
+      const p = y * w + x;
+      const idx = p * 4;
+      const a = d[idx + 3];
+      if (a < 10) {
+        d[idx + 3] = 0;
+        continue;
+      }
+
+      const fx = (x + 0.5) / blockSize - 0.5;
+      const gx0 = Math.max(0, Math.min(gw - 1, Math.floor(fx)));
+      const gx1 = Math.max(0, Math.min(gw - 1, gx0 + 1));
+      const tx = Math.max(0, Math.min(1, fx - gx0));
+
+      const b00 = grid[gy0 * gw + gx0];
+      const b10 = grid[gy0 * gw + gx1];
+      const b01 = grid[gy1 * gw + gx0];
+      const b11 = grid[gy1 * gw + gx1];
+      const bg =
+        b00 * (1 - tx) * (1 - ty) +
+        b10 * tx * (1 - ty) +
+        b01 * (1 - tx) * ty +
+        b11 * tx * ty;
+
+      const lum = lumArr[p];
+      const normLum = bg > 15 ? Math.min(255, (lum / bg) * 255) : lum;
+
+      if (normLum >= cutoff) {
+        d[idx + 3] = 0;
+      } else {
+        const strength = Math.min(1, (cutoff - normLum) / softBand);
+        // Smoothstep curve for crisp anti-aliased ink edges without gray halo
+        const smooth = strength * strength * (3 - 2 * strength);
+        d[idx + 3] = Math.round(a * smooth);
+        if (inkColor !== 'original') {
+          d[idx] = targetR;
+          d[idx + 1] = targetG;
+          d[idx + 2] = targetB;
+        }
       }
     }
   }
@@ -280,6 +380,22 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                         <Check size={12} /> Auf PDF setzen
                       </button>
                       <button
+                        className="btn"
+                        style={{ padding: '4px 6px', fontSize: 11.5 }}
+                        onClick={() => {
+                          const img = new Image();
+                          img.onload = () => {
+                            setRawImg(img);
+                            setSigName(sig.name);
+                            setMode('upload');
+                          };
+                          img.src = sig.dataUrl;
+                        }}
+                        title="Papier-Hintergrund nachbearbeiten / entfernen"
+                      >
+                        ✨
+                      </button>
+                      <button
                         className="btn btn-danger-ghost"
                         style={{ padding: 4 }}
                         onClick={() => {
@@ -411,8 +527,8 @@ export const SignatureModal: React.FC<SignatureModalProps> = ({
                 <>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5 }}>
-                      <span>Papier-Hintergrund entfernen (Schwellenwert):</span>
-                      <strong>{threshold}</strong>
+                      <span>Papier-Hintergrund entfernen (Stärke):</span>
+                      <strong>{Math.round(((threshold - 100) / 145) * 100)} %</strong>
                     </div>
                     <input
                       type="range"
