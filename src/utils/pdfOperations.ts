@@ -9,7 +9,13 @@ import {
 } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import type { PdfFormFieldValue, PdfHighlight, PdfSource, VirtualPage } from '../types';
+import type {
+  PdfFormFieldValue,
+  PdfHighlight,
+  PdfSignaturePlacement,
+  PdfSource,
+  VirtualPage,
+} from '../types';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
@@ -129,7 +135,8 @@ export async function buildPdfFromPages(
   sources: PdfSource[],
   pages: VirtualPage[],
   highlights: PdfHighlight[] = [],
-  formValues: Record<string, string | boolean> = {}
+  formValues: Record<string, string | boolean> = {},
+  signatures: PdfSignaturePlacement[] = []
 ): Promise<Uint8Array> {
   const outDoc = await PDFDocument.create();
   const loadedSources = new Map<string, PDFDocument>();
@@ -185,6 +192,27 @@ export async function buildPdfFromPages(
           color: rgb(r / 255, g / 255, b / 255),
           opacity: 0.35,
         });
+      }
+    }
+
+    const pageSignatures = signatures.filter((s) => s.pageId === vPage.id);
+    if (pageSignatures.length > 0) {
+      const { width, height } = copied.getSize();
+      for (const sig of pageSignatures) {
+        try {
+          const base64 = sig.dataUrl.split(',')[1];
+          if (!base64) continue;
+          const pngBytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+          const embedded = await outDoc.embedPng(pngBytes);
+          copied.drawImage(embedded, {
+            x: sig.xNorm * width,
+            y: height - (sig.yNorm + sig.hNorm) * height,
+            width: sig.wNorm * width,
+            height: sig.hNorm * height,
+          });
+        } catch {
+          // ignore invalid signature image
+        }
       }
     }
 

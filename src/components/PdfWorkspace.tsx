@@ -8,6 +8,7 @@ import {
   FolderOutput,
   Highlighter,
   Maximize2,
+  PenTool,
   Printer,
   RotateCw,
   Save,
@@ -22,10 +23,12 @@ import type {
   PdfFormFieldValue,
   PdfHighlight,
   PdfPart,
+  PdfSignaturePlacement,
   PdfSource,
   PdfTab,
   VirtualPage,
 } from '../types';
+import { SignatureModal } from './SignatureModal';
 import {
   OutlineEntry,
   PART_COLORS,
@@ -183,6 +186,20 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   const [formFields, setFormFields] = useState<PdfFormFieldValue[]>([]);
   const [highlightMode, setHighlightMode] = useState(false);
   const [highlightColor, setHighlightColor] = useState('#fde047');
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [pendingSignature, setPendingSignature] = useState<string | null>(null);
+  const [dragSigState, setDragSigState] = useState<{
+    id: string;
+    mode: 'move' | 'resize';
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+    origW: number;
+    origH: number;
+    shellW: number;
+    shellH: number;
+  } | null>(null);
   const [draftHighlight, setDraftHighlight] = useState<{
     pageId: string;
     x1: number;
@@ -198,6 +215,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
     : undefined;
   const partMap = new Map(tab.parts.map((p) => [p.id, p]));
   const highlights = tab.highlights ?? [];
+  const signatures = tab.signatures ?? [];
   const formValues = tab.formValues ?? {};
 
   // Load outline & form fields for primary source
@@ -260,7 +278,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
       onToast('Bitte zuerst mindestens eine Seite auswählen.');
       return;
     }
-    const bytes = await buildPdfFromPages(tab.sources, picked, highlights, formValues);
+    const bytes = await buildPdfFromPages(tab.sources, picked, highlights, formValues, signatures);
     const baseName = tab.title.replace(/\.pdf$/i, '');
     if (!isElectron()) {
       saveBytesBrowserFallback(`${baseName}_Auswahl.pdf`, bytes, 'application/pdf');
@@ -434,7 +452,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   const handleSaveSinglePart = async (part: PdfPart) => {
     const partPages = tab.pages.filter((p) => p.partId === part.id);
     if (!partPages.length) return;
-    const bytes = await buildPdfFromPages(tab.sources, partPages, highlights, formValues);
+    const bytes = await buildPdfFromPages(tab.sources, partPages, highlights, formValues, signatures);
     if (!isElectron()) {
       saveBytesBrowserFallback(`${part.name}.pdf`, bytes, 'application/pdf');
       onToast(`Part „${part.name}.pdf“ gespeichert.`);
@@ -461,7 +479,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
     for (const part of tab.parts) {
       const partPages = tab.pages.filter((p) => p.partId === part.id);
       if (!partPages.length) continue;
-      const bytes = await buildPdfFromPages(tab.sources, partPages, highlights, formValues);
+      const bytes = await buildPdfFromPages(tab.sources, partPages, highlights, formValues, signatures);
       payload.push({ fileName: `${part.name}.pdf`, data: bytes });
     }
     if (!payload.length) return;
@@ -477,7 +495,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   };
 
   const handleSaveCombinedPdf = async () => {
-    const bytes = await buildPdfFromPages(tab.sources, tab.pages, highlights, formValues);
+    const bytes = await buildPdfFromPages(tab.sources, tab.pages, highlights, formValues, signatures);
     const baseName = tab.title.replace(/\.pdf$/i, '');
     if (!isElectron()) {
       saveBytesBrowserFallback(`${baseName}_bearbeitet.pdf`, bytes, 'application/pdf');
@@ -495,7 +513,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
   };
 
   const handleUploadCombinedToPc = async () => {
-    const bytes = await buildPdfFromPages(tab.sources, tab.pages, highlights, formValues);
+    const bytes = await buildPdfFromPages(tab.sources, tab.pages, highlights, formValues, signatures);
     const baseName = tab.title.replace(/\.pdf$/i, '');
     const res = await uploadToPc(`${baseName}_handy.pdf`, bytes);
     if (res.ok) {
@@ -555,6 +573,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
     const src = tab.sources.find((s) => s.id === vp.sourceId);
     if (!src) return null;
     const pageHighlights = highlights.filter((h) => h.pageId === vp.id);
+    const pageSignatures = signatures.filter((s) => s.pageId === vp.id);
 
     const isSelected = selectedPageIds.has(vp.id);
     return (
@@ -565,7 +584,36 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
           else pageRefs.current.delete(idx);
         }}
         className="pdf-page-shell"
-        onClick={() => {
+        onClick={(e) => {
+          if (pendingSignature) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const clickX = (e.clientX - rect.left) / rect.width;
+            const clickY = (e.clientY - rect.top) / rect.height;
+            const sigData = pendingSignature;
+            setPendingSignature(null);
+            const img = new Image();
+            img.onload = () => {
+              const aspect = img.naturalHeight / Math.max(1, img.naturalWidth);
+              const wNorm = 0.22;
+              const hNorm = wNorm * aspect * (rect.width / Math.max(1, rect.height));
+              const placement: PdfSignaturePlacement = {
+                id: `sigp_${Date.now()}`,
+                pageId: vp.id,
+                dataUrl: sigData,
+                xNorm: Math.min(1 - wNorm, Math.max(0, clickX - wNorm / 2)),
+                yNorm: Math.min(1 - hNorm, Math.max(0, clickY - hNorm / 2)),
+                wNorm,
+                hNorm,
+              };
+              onUpdateTab((prev) => ({
+                ...prev,
+                signatures: [...(prev.signatures ?? []), placement],
+              }));
+              onToast('Unterschrift platziert! Ziehen zum Verschieben, Ecke ziehen zum Skalieren.');
+            };
+            img.src = sigData;
+            return;
+          }
           if (selectMode) {
             toggleSelectPage(vp.id);
           } else if (!highlightMode) {
@@ -578,7 +626,7 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
             : isActiveHighlight
               ? '2px solid var(--accent)'
               : 'none',
-          cursor: highlightMode || selectMode ? 'crosshair' : 'auto',
+          cursor: pendingSignature || highlightMode || selectMode ? 'crosshair' : 'auto',
         }}
         onMouseDown={(e) => {
           if (!highlightMode) return;
@@ -650,6 +698,133 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
               cursor: 'pointer',
             }}
           />
+        ))}
+
+        {/* Existing Signatures */}
+        {pageSignatures.map((sig) => (
+          <div
+            key={sig.id}
+            style={{
+              position: 'absolute',
+              left: `${sig.xNorm * 100}%`,
+              top: `${sig.yNorm * 100}%`,
+              width: `${sig.wNorm * 100}%`,
+              height: `${sig.hNorm * 100}%`,
+              border: '1px dashed rgba(59, 130, 246, 0.7)',
+              cursor: 'move',
+              touchAction: 'none',
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              const shell = e.currentTarget.parentElement;
+              if (!shell) return;
+              const r = shell.getBoundingClientRect();
+              e.currentTarget.setPointerCapture(e.pointerId);
+              setDragSigState({
+                id: sig.id,
+                mode: 'move',
+                startX: e.clientX,
+                startY: e.clientY,
+                origX: sig.xNorm,
+                origY: sig.yNorm,
+                origW: sig.wNorm,
+                origH: sig.hNorm,
+                shellW: r.width,
+                shellH: r.height,
+              });
+            }}
+            onPointerMove={(e) => {
+              if (!dragSigState || dragSigState.id !== sig.id) return;
+              const dx = (e.clientX - dragSigState.startX) / dragSigState.shellW;
+              const dy = (e.clientY - dragSigState.startY) / dragSigState.shellH;
+              onUpdateTab((prev) => ({
+                ...prev,
+                signatures: (prev.signatures ?? []).map((item) => {
+                  if (item.id !== sig.id) return item;
+                  if (dragSigState.mode === 'move') {
+                    return {
+                      ...item,
+                      xNorm: Math.min(1 - item.wNorm, Math.max(0, dragSigState.origX + dx)),
+                      yNorm: Math.min(1 - item.hNorm, Math.max(0, dragSigState.origY + dy)),
+                    };
+                  }
+                  const nextW = Math.max(0.05, Math.min(1 - item.xNorm, dragSigState.origW + dx));
+                  const ratio = dragSigState.origH / Math.max(0.001, dragSigState.origW);
+                  return {
+                    ...item,
+                    wNorm: nextW,
+                    hNorm: Math.min(1 - item.yNorm, nextW * ratio),
+                  };
+                }),
+              }));
+            }}
+            onPointerUp={() => setDragSigState(null)}
+          >
+            <img
+              src={sig.dataUrl}
+              alt="Unterschrift"
+              draggable={false}
+              style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }}
+            />
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdateTab((prev) => ({
+                  ...prev,
+                  signatures: (prev.signatures ?? []).filter((s) => s.id !== sig.id),
+                }));
+              }}
+              title="Unterschrift entfernen"
+              style={{
+                position: 'absolute',
+                top: -10,
+                right: -10,
+                width: 20,
+                height: 20,
+                borderRadius: '50%',
+                border: 'none',
+                background: '#ef4444',
+                color: '#fff',
+                fontSize: 11,
+                cursor: 'pointer',
+              }}
+            >
+              ✕
+            </button>
+            <div
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                const shell = e.currentTarget.parentElement?.parentElement;
+                if (!shell) return;
+                const r = shell.getBoundingClientRect();
+                e.currentTarget.parentElement?.setPointerCapture(e.pointerId);
+                setDragSigState({
+                  id: sig.id,
+                  mode: 'resize',
+                  startX: e.clientX,
+                  startY: e.clientY,
+                  origX: sig.xNorm,
+                  origY: sig.yNorm,
+                  origW: sig.wNorm,
+                  origH: sig.hNorm,
+                  shellW: r.width,
+                  shellH: r.height,
+                });
+              }}
+              title="Größe ändern"
+              style={{
+                position: 'absolute',
+                right: -5,
+                bottom: -5,
+                width: 12,
+                height: 12,
+                background: '#3b82f6',
+                borderRadius: 2,
+                cursor: 'nwse-resize',
+              }}
+            />
+          </div>
         ))}
 
         {/* Draft Highlight */}
@@ -804,6 +979,19 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
             title="Aktuelle Seite um 90° drehen"
           >
             <RotateCw size={15} /> Drehen
+          </button>
+          <button
+            className={`btn ${pendingSignature ? 'btn-primary' : ''}`}
+            onClick={() => {
+              if (pendingSignature) {
+                setPendingSignature(null);
+              } else {
+                setShowSignatureModal(true);
+              }
+            }}
+            title="Unterschrift zeichnen oder PNG/JPG (ohne Papierhintergrund) auf PDF setzen"
+          >
+            <PenTool size={15} /> {pendingSignature ? 'Klick auf Seite...' : 'Unterschrift'}
           </button>
           <button
             className="btn btn-primary"
@@ -1283,6 +1471,18 @@ export const PdfWorkspace: React.FC<PdfWorkspaceProps> = ({
           )}
         </div>
       </div>
+
+      {showSignatureModal && (
+        <SignatureModal
+          onClose={() => setShowSignatureModal(false)}
+          onSelectForPlacement={(dataUrl) => {
+            setShowSignatureModal(false);
+            setPendingSignature(dataUrl);
+            onToast('Klicke jetzt auf die gewünschte Stelle auf der PDF-Seite.');
+          }}
+          onToast={onToast}
+        />
+      )}
     </div>
   );
 };

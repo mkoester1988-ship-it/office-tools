@@ -1,6 +1,6 @@
 # MEMORY aktuell, PDF-Reader (`PDF`)
 
-Stand: 2026-11-18 · Kürzel: `PDF` · Phase: `aufbau` · Sensibilität: 🟢
+Stand: 2026-11-23 · Kürzel: `PDF` · Phase: `live` · Sensibilität: 🟢
 
 ## Entscheidungen & Kalkulation (aus Zwei-Stufen-Interview)
 
@@ -9,10 +9,11 @@ Stand: 2026-11-18 · Kürzel: `PDF` · Phase: `aufbau` · Sensibilität: 🟢
 - **Kosten & Break-Even:** 0 € laufende Kosten (100 % lokal, keine Cloud/API).
 - **Risiken & Leitplanken:** `C:\Program Files\Adobe\Acrobat DC\` wird nur read-only analysiert; keine proprietären Assets oder Icons übernommen.
 
-## Aktueller Stand (v1.4.4, 2026-11-18)
+## Aktueller Stand (v1.6.0, 2026-11-23)
 
-- **App gebaut & verifiziert:** `npm run build` + Gradle `assembleDebug` fehlerfrei, GitHub-Repo `mkoester1988-ship-it/office-tools` + Web-Installer `OfficeTools-Installer.exe` (~31,5 KB) + GitHub Releases (`v1.2.7` bis `v1.4.4`) live.
-- **Neu in `v1.4.4`:** Durchgehendes Runterscrollen als Standard (`viewMode: 'scroll'` mit automatischem Seitenzähler beim Scrollen), **„Ohne Trennung speichern“** (Original bleibt erhalten), sowie **„Auswahl“-Modus** (beliebige Seiten markieren & als separate PDF speichern). Bereits per `adb` auf Mircos Handy installiert.
+- **App gebaut & verifiziert:** `npm run build`, Android-APK (`versionCode 8`, `versionName "1.6.0"`) + `electron-builder` (`PDF-Reader Studio Setup 1.6.0.exe`) fehlerfrei, GitHub-Repo `mkoester1988-ship-it/office-tools` + GitHub Releases (`v1.2.7` bis `v1.6.0`) live.
+- **Neu in `v1.6.0` (Unterschrift-Studio):** Toolbar-Button `✍️ Unterschrift` (`SignatureModal.tsx`) zum Zeichnen und dauerhaften Speichern eigener Unterschriften (Schwarz, Dunkelblau, Blau) sowie zum **Importieren von PNG/JPG/WebP-Unterschriften mit automatischer Papierhintergrund-Entfernung** (einstellbarer Schwellenwert `100–245` für saubere Alpha-Transparenz) und Farbanpassung (Original, Schwarz, Dunkelblau, Blau). Unterschriften lassen sich per Klick auf PDF-Seiten platzieren, frei verschieben, per Eck-Anfasser skalieren, löschen und über `pdf-lib` (`embedPng`) in alle PDF-Exporte einbetten.
+- **Neu in `v1.5.0`:** Eigenes **Einstellungen & Tastenkürzel**-Menü (`SettingsModal.tsx`, persistent in `app-settings.json`): Hintergrund-/Tray-Verhalten beim Schließen (`X`), Windows-Autostart, Vordergrund-Fokus bei neuen Screenshots sowie frei belegbare globale Tastenkürzel.
 - **Windows-Installer fertig:** `D:\KI-Arbeitsbereich\PDF-Reader\release\PDF-Reader Studio Setup 1.2.6.exe` (NSIS-Setup mit Dateizuordnungen für `.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.gif`), **1-Klick-Update-Button** (`cmd /c start` + `--just-updated` Erfolgstoast) sowie **Standard-App-Button** (`RegisteredApplications` + `ms-settings:defaultapps`).
 - **System-Tray & Windows-Snipping-Anbindung:** Minimiert beim Schließen (`X`) ins System-Tray und startet per Autostart (`--hidden`). Das native Windows-Snipping-Tool (`Druck` / `Win+Shift+S`) bleibt aktiv; ein **Clipboard-Watcher** (450 ms, im Tray umschaltbar) erkennt jeden neuen Screenshot sofort, holt **PDF-Reader Studio** in den Vordergrund und öffnet ihn im KI-Markierungsstudio. Der eigene In-App-Screenshot-Overlay nutzt IPC (`snip:init`) statt langer Data-URLs.
 - **Enthaltene Funktionen:**

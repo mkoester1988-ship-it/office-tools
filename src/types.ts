@@ -93,6 +93,22 @@ export interface PdfHighlight {
   color: string;
 }
 
+export interface SavedSignature {
+  id: string;
+  name: string;
+  dataUrl: string; // Transparent PNG data URL
+}
+
+export interface PdfSignaturePlacement {
+  id: string;
+  pageId: string;
+  dataUrl: string; // Transparent PNG data URL
+  xNorm: number;
+  yNorm: number;
+  wNorm: number;
+  hNorm: number;
+}
+
 export interface PdfFormFieldValue {
   name: string;
   kind: 'text' | 'checkbox' | 'dropdown' | 'radio';
@@ -109,6 +125,7 @@ export interface PdfTab {
   parts: PdfPart[];
   activePageIndex: number; // 0-based index in pages
   highlights?: PdfHighlight[];
+  signatures?: PdfSignaturePlacement[];
   formValues?: Record<string, string | boolean>;
 }
 
